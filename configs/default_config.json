@@ -1,0 +1,9 @@
+{
+  "mdns": "kikker-x",
+  "known_networks": [],
+  "fallback_access_point": {
+    "ssid": "KikkerX",
+    "password": "kikker-x-pass"
+  },
+  "auth": null
+}

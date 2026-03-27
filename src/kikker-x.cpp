@@ -1,0 +1,1087 @@
+/**
+ * kikker.ino — MJPEG camera server for M5Stack Timer Camera X
+ *
+ * Static files (served from catalog):
+ *   GET /                → index.html  (home page: battery, power-off, links)
+ *   GET /video           → video.html  (live MJPEG viewer)
+ *   GET /photo           → photo.html  (still capture viewer)
+ *   GET /settings.mjs    Shared settings panel JS
+ *   GET /style.css       Shared stylesheet
+ *
+ * API endpoints:
+ *   GET   /api/status                            → JSON {battery, id, wifi, version}
+ *   POST  /api/restart                           → reboot the ESP32
+ *   POST  /api/poweroff?duration=N               → power off or timed sleep
+ *   POST  /api/wifi/reconnect                    → disconnect WiFi, wait 3 s, reconnect (may roam)
+ *   GET   /api/led                               → JSON {state: bool}
+ *   PATCH /api/led                               → body {state: bool}, returns same
+ *   POST  /api/led/blink                         → body {pattern: "on,off,..."}, blinks then restores
+ *   GET   /api/cam/stream.mjpeg?...              → raw MJPEG (FreeRTOS task)
+ *   GET   /api/cam/capture.jpg?...               → raw still JPEG
+ *   GET   /api/streamfps                         → JSON {fps, active}
+ *   GET   /api/logs                              → plain-text log buffer
+ *
+ * WiFi credentials are in _config.json.
+ */
+
+#include <ESPmDNS.h>
+#include <WiFi.h>
+#include <cJSON.h>
+#include <lwip/sockets.h>
+
+#include <atomic>
+
+#include "M5TimerCAM.h"
+#include "_version.h"
+#include "auth.h"
+#include "config.h"
+#include "log.h"
+#include "static.h"
+#include "wifi_connect.h"
+
+// ---------------------------------------------------------------------------
+// LED helper
+// ---------------------------------------------------------------------------
+
+static void blinkLed(int times) {
+  for (int i = 0; i < times; i++) {
+    if (i > 0)
+      delay(100);
+    TimerCAM.Power.setLed(255);
+    delay(100);
+    TimerCAM.Power.setLed(0);
+  }
+}
+
+WiFiServer server(80, 6);  // backlog for simultaneous connections
+
+// Current user-controlled LED state (blue LED on the board).
+static bool g_ledState = false;
+
+// mDNS hostname (set in setup(), re-registered on reconnect).
+static String g_mdnsName;
+
+// True while a stream task is running.
+static volatile bool g_streamActive = false;
+// Most-recently measured stream FPS (updated every 20 frames by the stream
+// task).
+static std::atomic<float> g_streamFps{0.0f};
+// Set to true to ask the running stream to exit at the next frame boundary.
+static volatile bool g_stopStream = false;
+// Set to true by captureTask when a photo was taken with its own settings
+// while a stream was active; the stream will re-apply its own settings on
+// the next frame, then clear this flag.
+static volatile bool g_settingsDirty = false;
+// Set by loop() to ask the stream to pause at the next frame boundary.
+// Cleared by captureTask once the photo is done.
+static volatile bool g_streamPause = false;
+// Set by the stream task to acknowledge it is paused and not holding any
+// camera resources; cleared when the stream resumes.
+static volatile bool g_streamPaused = false;
+// True while a captureTask is running, so streamTask knows not to release
+// the camera on exit.
+static volatile bool g_captureActive = false;
+
+// Signal the running stream (if any) to stop and block until it has exited.
+// Safe to call from loop() — delay() inside yields to the FreeRTOS scheduler
+// so the stream task can run, detect the flag, and clean up.
+static void stopStream() {
+  if (!g_streamActive)
+    return;
+  g_stopStream = true;
+  // The stream may be stuck in sendBytes() for up to its 3 s stall timeout
+  // before it can check g_stopStream and clean up.  Use 5 s here so the
+  // stream always has time to exit and clear g_streamActive before we return.
+  unsigned long deadline = millis() + 5000;
+  while (g_streamActive && millis() < deadline)
+    delay(10);
+  g_stopStream = false;
+}
+
+// ---------------------------------------------------------------------------
+// Resolution table — all resolutions supported by the OV3660 (max: UXGA
+// 1600x1200)
+// ---------------------------------------------------------------------------
+
+struct ResEntry {
+  const char* name;
+  framesize_t size;
+};
+
+static const ResEntry RESOLUTIONS[] = {
+    {"QQVGA", FRAMESIZE_QQVGA},  // 160x120
+    {"QVGA", FRAMESIZE_QVGA},  // 320x240
+    {"CIF", FRAMESIZE_CIF},  // 400x296
+    {"VGA", FRAMESIZE_VGA},  // 640x480
+    {"SVGA", FRAMESIZE_SVGA},  // 800x600
+    {"XGA", FRAMESIZE_XGA},  // 1024x768
+    {"SXGA", FRAMESIZE_SXGA},  // 1280x1024
+    {"UXGA", FRAMESIZE_UXGA},  // 1600x1200 — sensor maximum
+};
+static const int N_RES = sizeof(RESOLUTIONS) / sizeof(RESOLUTIONS[0]);
+
+static framesize_t resolveName(const String& name) {
+  for (int i = 0; i < N_RES; i++)
+    if (name.equalsIgnoreCase(RESOLUTIONS[i].name))
+      return RESOLUTIONS[i].size;
+  return FRAMESIZE_SVGA;
+}
+
+// ---------------------------------------------------------------------------
+// Camera mutex
+// ---------------------------------------------------------------------------
+
+static SemaphoreHandle_t cameraMutex = nullptr;
+
+static bool g_cameraReady = false;
+static framesize_t currentFramesize = (framesize_t)-1;
+static int currentQuality = -1;
+
+// Initialize the camera if not already running. Must NOT be called with
+// cameraMutex held — begin() can take hundreds of ms.
+// Returns true on success.
+static bool cameraEnsureReady() {
+  if (g_cameraReady)
+    return true;
+  if (!TimerCAM.Camera.begin()) {
+    Log.println("Camera init failed");
+    return false;
+  }
+  TimerCAM.Camera.sensor->set_pixformat(TimerCAM.Camera.sensor, PIXFORMAT_JPEG);
+  TimerCAM.Camera.sensor->set_vflip(TimerCAM.Camera.sensor, 1);
+  TimerCAM.Camera.sensor->set_hmirror(TimerCAM.Camera.sensor, 0);
+  g_cameraReady = true;
+  Log.println("Camera ready");
+  return true;
+}
+
+// Stop the camera driver and release DMA buffers. Must NOT be called with
+// cameraMutex held. Safe to call when already released.
+static void cameraRelease() {
+  if (!g_cameraReady)
+    return;
+  esp_camera_deinit();
+  currentFramesize = (framesize_t)-1;
+  currentQuality = -1;
+  g_cameraReady = false;
+  Log.println("Camera released");
+}
+
+// Must be called with cameraMutex held.
+static void applyFramesize(framesize_t fs) {
+  if (fs == currentFramesize)
+    return;
+  TimerCAM.Camera.sensor->set_framesize(TimerCAM.Camera.sensor, fs);
+  currentFramesize = fs;
+  delay(150);
+  if (TimerCAM.Camera.get())
+    TimerCAM.Camera.free();
+}
+
+// Must be called with cameraMutex held.
+static void applyQuality(int q) {
+  if (q == currentQuality)
+    return;
+  TimerCAM.Camera.sensor->set_quality(TimerCAM.Camera.sensor, q);
+  currentQuality = q;
+}
+
+// ---------------------------------------------------------------------------
+// MJPEG stream constants
+// ---------------------------------------------------------------------------
+
+#define BOUNDARY "frame"
+#define PART_HDR "\r\n--" BOUNDARY "\r\nContent-Type: image/jpeg\r\nContent-Length: "
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+void setup() {
+  Serial.begin(115200);
+  logInit();
+  getConfig();  // parse and cache early so log output appears at startup
+  TimerCAM.begin(true);  // true = enable RTC (BM8563) for timerSleep()
+
+  cameraMutex = xSemaphoreCreateMutex();
+  if (!cameraMutex) {
+    Log.println("FATAL: failed to create camera mutex");
+    for (;;)
+      delay(1000);
+  }
+
+  wifiConnect();
+
+  // Lower TX power to reduce heat; raise if range is insufficient.
+  static const wifi_power_t WIFI_TX_POWER = WIFI_POWER_11dBm;
+  WiFi.setTxPower(WIFI_TX_POWER);
+
+  server.begin();
+  g_mdnsName = getConfig().mdns ? getConfig().mdns : "";
+  if (wifiIsAP()) {
+    Log.printf("Camera server ready in AP mode at http://%s/\n", WiFi.softAPIP().toString().c_str());
+  } else {
+    if (!g_mdnsName.isEmpty()) {
+      if (!MDNS.begin(g_mdnsName.c_str()))
+        Log.println("mDNS start failed");
+      Log.printf("Camera server ready at http://%s/ (http://%s.local/)\n", WiFi.localIP().toString().c_str(),
+          g_mdnsName.c_str());
+    } else {
+      Log.printf("Camera server ready at http://%s/\n", WiFi.localIP().toString().c_str());
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Request handling helpers
+// ---------------------------------------------------------------------------
+
+// Reads headers, returning Content-Length (0 if absent).
+// Captures the Authorization header value into authHeader.
+static int readHeaders(WiFiClient& client, String& authHeader) {
+  int contentLength = 0;
+  while (client.connected()) {
+    String line = client.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0)
+      break;
+    String lower = line;
+    lower.toLowerCase();
+    if (lower.startsWith("content-length:")) {
+      String val = line.substring(15);
+      val.trim();
+      contentLength = val.toInt();
+      if (contentLength < 0 || contentLength > 4096)
+        contentLength = 0;
+    } else if (lower.startsWith("authorization:")) {
+      authHeader = line.substring(14);
+      authHeader.trim();
+    }
+  }
+  return contentLength;
+}
+
+static String readBody(WiFiClient& client, int len) {
+  String body;
+  if (len <= 0)
+    return body;
+  unsigned long deadline = millis() + 1000;
+  while ((int)body.length() < len && millis() < deadline) {
+    if (client.available())
+      body += (char)client.read();
+    else
+      delay(1);
+  }
+  return body;
+}
+
+static void send404(WiFiClient& client) {
+  client.print("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+  client.stop();
+  Log.println("→ 404");
+}
+
+static void send405(WiFiClient& client) {
+  client.print("HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n");
+  client.stop();
+  Log.println("→ 405");
+}
+
+static void send503(WiFiClient& client, const char* msg) {
+  client.print("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+  client.print(msg);
+  client.stop();
+  Log.println("→ 503");
+}
+
+// Send raw bytes in CHUNK-sized pieces. Returns true only if all sent.
+static bool sendBytes(WiFiClient& client, const uint8_t* buf, size_t len) {
+  static const size_t CHUNK = 4096;
+  uint32_t stallStart = 0;
+  while (len > 0) {
+    size_t n = len > CHUNK ? CHUNK : len;
+    int written = client.write(buf, n);
+    if (written == 0) {
+      // Send buffer temporarily full — give the TCP stack a moment to
+      // flush before retrying. Bail if the client disconnected or if
+      // no progress has been made for 3 s (SO_SNDTIMEO does not apply
+      // to the non-blocking Arduino WiFiClient::write path).
+      if (stallStart == 0)
+        stallStart = millis();
+      else if (millis() - stallStart > 3000)
+        return false;
+      delay(1);
+      if (!client.connected())
+        return false;
+      continue;
+    }
+    if (written < 0)
+      return false;
+    stallStart = 0;
+    buf += written;
+    len -= written;
+    // Let the WiFi stack process TCP ACKs between chunks.
+    yield();
+  }
+  return true;
+}
+
+// Convenience wrapper for null-terminated text content.
+static bool sendBody(WiFiClient& client, const char* body) {
+  return sendBytes(client, (const uint8_t*)body, strlen(body));
+}
+
+// parseParam("GET /api/cam/stream.mjpeg?res=SVGA&quality=12 HTTP/1.1", "res") →
+// "SVGA"
+static String parseParam(const String& reqLine, const char* key) {
+  int q = reqLine.indexOf('?');
+  if (q < 0)
+    return "";
+  int end = reqLine.indexOf(' ', q);
+  String qs = (end > 0) ? reqLine.substring(q + 1, end) : reqLine.substring(q + 1);
+  String prefix = String(key) + "=";
+  int pos = qs.indexOf(prefix);
+  if (pos < 0)
+    return "";
+  int valStart = pos + prefix.length();
+  int amp = qs.indexOf('&', valStart);
+  return (amp > 0) ? qs.substring(valStart, amp) : qs.substring(valStart);
+}
+
+static int intParam(const String& reqLine, const char* key, int def) {
+  String v = parseParam(reqLine, key);
+  return v.length() > 0 ? v.toInt() : def;
+}
+
+// Must be called with cameraMutex held.
+// Applies all OV3660 sensor settings derived from URL query parameters,
+// using the same defaults as the stream and photo UIs.
+static void applySensorSettings(sensor_t* s, const String& reqLine) {
+  s->set_brightness(s, intParam(reqLine, "brightness", 0));
+  s->set_contrast(s, intParam(reqLine, "contrast", 0));
+  s->set_saturation(s, intParam(reqLine, "saturation", 0));
+  s->set_sharpness(s, intParam(reqLine, "sharpness", 1));
+  s->set_denoise(s, intParam(reqLine, "denoise", 0));
+  s->set_ae_level(s, intParam(reqLine, "ae_level", 0));
+  // wb_mode: 0=Auto, 1=Sunny, 2=Cloudy, 3=Office, 4=Home.
+  // On OV3660 the preset modes are constrained-AWB modes, not fixed gains —
+  // whitebal (AWB enable) must stay 1 for any mode; wb_mode selects the
+  // algorithm. awb_gain must also be 1 for preset colour matrices to apply.
+  int wbMode = intParam(reqLine, "wb_mode", 0);
+  s->set_whitebal(s, 1);
+  s->set_wb_mode(s, wbMode);
+  s->set_awb_gain(s, wbMode != 0 ? 1 : intParam(reqLine, "awb_gain", 0));
+  s->set_hmirror(s, intParam(reqLine, "hmirror", 0));
+  s->set_vflip(s, intParam(reqLine, "vflip", 1));
+  s->set_exposure_ctrl(s, intParam(reqLine, "aec", 1));
+  s->set_aec_value(s, intParam(reqLine, "aec_value", 490));
+  s->set_gain_ctrl(s, intParam(reqLine, "agc", 1));
+  s->set_agc_gain(s, intParam(reqLine, "agc_gain", 2));
+  s->set_gainceiling(s, (gainceiling_t)intParam(reqLine, "gainceiling", 248));
+  s->set_aec2(s, intParam(reqLine, "aec2", 0));
+  s->set_bpc(s, intParam(reqLine, "bpc", 1));
+  s->set_wpc(s, intParam(reqLine, "wpc", 1));
+  s->set_raw_gma(s, intParam(reqLine, "raw_gma", 1));
+  s->set_lenc(s, intParam(reqLine, "lenc", 1));
+  s->set_dcw(s, intParam(reqLine, "dcw", 1));
+  s->set_colorbar(s, intParam(reqLine, "colorbar", 0));
+}
+
+// Extracts path from "GET /path?query HTTP/1.1" → "/path"
+static String parsePath(const String& reqLine) {
+  int start = reqLine.indexOf(' ');
+  if (start < 0)
+    return "/";
+  start++;
+  int end = reqLine.indexOf(' ', start);
+  String url = (end > 0) ? reqLine.substring(start, end) : reqLine.substring(start);
+  int q = url.indexOf('?');
+  return (q >= 0) ? url.substring(0, q) : url;
+}
+
+static void serveStatic(WiFiClient& client, const StaticFile* f) {
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: ");
+  client.print(f->contentType);
+  client.print("\r\nContent-Length: ");
+  client.print(f->size);
+  client.print("\r\nCache-Control: no-cache\r\n");
+  client.print("Connection: close\r\n\r\n");
+  bool ok = sendBytes(client, f->data, f->size);
+  client.stop();
+  if (ok)
+    Log.printf("→ 200 %s\n", f->name);
+  else
+    Log.printf("→ err %s (send truncated)\n", f->name);
+}
+
+// ---------------------------------------------------------------------------
+// API: LED
+// ---------------------------------------------------------------------------
+
+static void sendLedState(WiFiClient& client) {
+  char buf[24];
+  snprintf(buf, sizeof(buf), "{\"state\":%s}", g_ledState ? "true" : "false");
+  client.print(
+      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+  client.print(buf);
+  client.stop();
+  Log.printf("→ 200 led state=%s\n", g_ledState ? "on" : "off");
+}
+
+static void handleLedGet(WiFiClient& client) { sendLedState(client); }
+
+static void handleLedPatch(WiFiClient& client, const String& body) {
+  cJSON* json = cJSON_Parse(body.c_str());
+  if (json) {
+    cJSON* state = cJSON_GetObjectItem(json, "state");
+    if (cJSON_IsBool(state)) {
+      g_ledState = cJSON_IsTrue(state);
+      TimerCAM.Power.setLed(g_ledState ? 255 : 0);
+      Log.printf("LED → %s\n", g_ledState ? "on" : "off");
+    }
+    cJSON_Delete(json);
+  }
+  sendLedState(client);
+}
+
+static void handleLedBlink(WiFiClient& client, const String& body) {
+  String pattern = "200";
+  cJSON* json = cJSON_Parse(body.c_str());
+  if (json) {
+    cJSON* pat = cJSON_GetObjectItem(json, "pattern");
+    if (cJSON_IsString(pat) && pat->valuestring)
+      pattern = pat->valuestring;
+    cJSON_Delete(json);
+  }
+
+  // Validate: all tokens must be positive integers, total must not exceed 5000 ms.
+  int total = 0;
+  int pos = 0;
+  while (true) {
+    int comma = pattern.indexOf(',', pos);
+    String tok = (comma >= 0) ? pattern.substring(pos, comma) : pattern.substring(pos);
+    tok.trim();
+    int ms = tok.toInt();
+    if (ms <= 0) {
+      client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+      client.print("Invalid pattern: each value must be a positive integer.");
+      client.stop();
+      return;
+    }
+    total += ms;
+    if (total > 5000) {
+      client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+      client.print("Pattern too long: total must not exceed 5000 ms.");
+      client.stop();
+      return;
+    }
+    if (comma < 0)
+      break;
+    pos = comma + 1;
+  }
+
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+  client.print("OK");
+  client.stop();
+  Log.printf("LED blink: %s (%d ms)\n", pattern.c_str(), total);
+
+  bool saved = g_ledState;
+  bool on = true;
+  pos = 0;
+  while (true) {
+    int comma = pattern.indexOf(',', pos);
+    String tok = (comma >= 0) ? pattern.substring(pos, comma) : pattern.substring(pos);
+    tok.trim();
+    TimerCAM.Power.setLed(on ? 255 : 0);
+    delay(tok.toInt());
+    on = !on;
+    if (comma < 0)
+      break;
+    pos = comma + 1;
+  }
+  g_ledState = saved;
+  TimerCAM.Power.setLed(g_ledState ? 255 : 0);
+}
+
+// ---------------------------------------------------------------------------
+// API: status
+// ---------------------------------------------------------------------------
+
+static void handleStatus(WiFiClient& client) {
+  int16_t voltage = TimerCAM.Power.getBatteryVoltage();
+  int16_t level = TimerCAM.Power.getBatteryLevel();
+  uint64_t mac = ESP.getEfuseMac();
+  char macStr[13];
+  snprintf(macStr, sizeof(macStr), "%02x%02x%02x%02x%02x%02x", (int)((mac >> 40) & 0xff), (int)((mac >> 32) & 0xff),
+      (int)((mac >> 24) & 0xff), (int)((mac >> 16) & 0xff), (int)((mac >> 8) & 0xff), (int)(mac & 0xff));
+
+  bool isAP = wifiIsAP();
+  cJSON* root = cJSON_CreateObject();
+  cJSON* battery = cJSON_CreateObject();
+  cJSON_AddNumberToObject(battery, "voltage", voltage);
+  cJSON_AddNumberToObject(battery, "level", level);
+  cJSON_AddItemToObject(root, "battery", battery);
+  cJSON_AddStringToObject(root, "id", macStr);
+  cJSON* wifi = cJSON_CreateObject();
+  cJSON_AddStringToObject(wifi, "mode", isAP ? "ap" : "station");
+  if (isAP) {
+    cJSON_AddStringToObject(wifi, "ssid", WiFi.softAPSSID().c_str());
+    cJSON_AddStringToObject(wifi, "ip", WiFi.softAPIP().toString().c_str());
+  } else {
+    int32_t rssi = WiFi.RSSI();
+    cJSON_AddStringToObject(wifi, "ssid", WiFi.SSID().c_str());
+    cJSON_AddStringToObject(wifi, "ip", WiFi.localIP().toString().c_str());
+    cJSON_AddNumberToObject(wifi, "rssi", rssi);
+  }
+  cJSON_AddItemToObject(root, "wifi", wifi);
+  cJSON_AddStringToObject(root, "version", FIRMWARE_VERSION);
+
+  char* json = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+
+  client.print(
+      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+  if (json) {
+    client.print(json);
+    free(json);
+  }
+  client.stop();
+  Log.printf("→ 200 status %dmV %d%% %s\n", (int)voltage, (int)level, isAP ? "ap" : "station");
+}
+
+// ---------------------------------------------------------------------------
+// API: power off / timed sleep
+// ---------------------------------------------------------------------------
+
+// Execute a power-off or timed sleep. The HTTP response must already be sent
+// and the client stopped before calling this. Never returns.
+// Safe to call with the camera already released: cameraRelease() is idempotent.
+static void doPowerOff(int duration) {
+  delay(500);
+  Serial.flush();
+  if (duration == 0) {
+    TimerCAM.Power.powerOff();
+  } else {
+    // Release the camera: the camera driver (sccb_i2c_port=0) shares the
+    // I2C bus (GPIO12/14) with the BM8563 RTC.  Deinit it first so that
+    // the subsequent Wire re-init can communicate with the RTC cleanly.
+    cameraRelease();
+    TimerCAM.Rtc.begin();
+    TimerCAM.Power.timerSleep(duration);
+  }
+}
+
+static void handlePowerOff(WiFiClient& client, const String& reqLine) {
+  int duration = intParam(reqLine, "duration", 0);
+  const char* body = duration == 0 ? "Powering off." : "Going to sleep.";
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+  client.print(body);
+  client.flush();
+  client.stop();
+  if (duration == 0)
+    Log.println("→ 200 poweroff (permanent)");
+  else
+    Log.printf("→ 200 poweroff (sleep %ds)\n", duration);
+  doPowerOff(duration);
+}
+
+// ---------------------------------------------------------------------------
+// MJPEG stream
+// ---------------------------------------------------------------------------
+
+static void handleMjpeg(WiFiClient& client, const String& reqLine) {
+  sensor_t* s = TimerCAM.Camera.sensor;
+  framesize_t streamFs = resolveName(parseParam(reqLine, "res"));
+  int streamQuality = intParam(reqLine, "quality", 12);
+
+  xSemaphoreTake(cameraMutex, portMAX_DELAY);
+  applyFramesize(streamFs);
+  applyQuality(streamQuality);
+  applySensorSettings(s, reqLine);
+  xSemaphoreGive(cameraMutex);
+
+  {
+    int fd = client.fd();
+    if (fd >= 0) {
+      // Disable Nagle: the stream sends small boundary headers before each
+      // frame; Nagle + receiver delayed-ACK would stall the pipeline ~200ms
+      // per frame otherwise.
+      int flag = 1;
+      setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+      // Fail in 3 s so an abandoned connection is detected quickly,
+      // freeing the camera for the next request.
+      struct timeval tv = {3, 0};
+      setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+      int sndbuf = 32768;
+      setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+    }
+  }
+
+  client.print(
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: multipart/x-mixed-replace;boundary=" BOUNDARY
+      "\r\n"
+      "Cache-Control: no-cache\r\n"
+      "Connection: keep-alive\r\n\r\n");
+
+  Log.printf("Stream started: res=%s quality=%d\n", parseParam(reqLine, "res").c_str(), streamQuality);
+
+  int64_t lastUs = esp_timer_get_time();
+  uint32_t frameCount = 0;
+  bool writeError = false;
+  int64_t totalCamUs = 0, totalSendUs = 0;
+
+  while (client.connected() && !g_stopStream) {
+    if (client.available())
+      break;
+
+    // Hold at the frame boundary while a capture is in progress. The stream
+    // HTTP response stays open; the browser just sees a pause in frames.
+    if (g_streamPause) {
+      g_streamPaused = true;
+      while (g_streamPause && client.connected() && !g_stopStream)
+        delay(10);
+      g_streamPaused = false;
+      if (!client.connected() || g_stopStream)
+        break;
+      // Capture may have changed sensor params; restore stream settings.
+      g_settingsDirty = true;
+      continue;
+    }
+
+    int64_t t0 = esp_timer_get_time();
+
+    xSemaphoreTake(cameraMutex, portMAX_DELAY);
+    applyFramesize(streamFs);
+    applyQuality(streamQuality);
+    if (g_settingsDirty) {
+      // A photo was taken with different settings — restore the stream's own
+      // settings before capturing the next frame.
+      applySensorSettings(s, reqLine);
+      g_settingsDirty = false;
+      // Discard the frame that was captured with the photo's settings.
+      if (TimerCAM.Camera.get())
+        TimerCAM.Camera.free();
+    }
+    bool got = TimerCAM.Camera.get();
+    // Save fb pointer before releasing the mutex — the capture task could
+    // otherwise overwrite Camera.fb via applyFramesize() in the gap.
+    camera_fb_t* fb = TimerCAM.Camera.fb;
+    xSemaphoreGive(cameraMutex);
+
+    if (!got) {
+      delay(10);
+      continue;
+    }
+    int64_t t1 = esp_timer_get_time();
+    totalCamUs += t1 - t0;
+
+    size_t frameLen = fb->len;
+    client.print(PART_HDR);
+    client.print(frameLen);
+    client.print("\r\n\r\n");
+    bool ok = sendBytes(client, fb->buf, frameLen);
+    totalSendUs += esp_timer_get_time() - t1;
+
+    xSemaphoreTake(cameraMutex, portMAX_DELAY);
+    esp_camera_fb_return(fb);
+    xSemaphoreGive(cameraMutex);
+
+    if (!ok) {
+      writeError = true;
+      break;
+    }
+
+    frameCount++;
+    if (frameCount % 20 == 0) {
+      int64_t nowUs = esp_timer_get_time();
+      float fps = 20.0f * 1e6f / (float)(nowUs - lastUs);
+      g_streamFps = fps;
+      uint32_t avgCamMs = (uint32_t)(totalCamUs / 20 / 1000);
+      uint32_t avgSendMs = (uint32_t)(totalSendUs / 20 / 1000);
+      Log.printf("Stream: %.1f FPS  frame=%uB  cam=%ums  send=%ums\n", fps, frameLen, avgCamMs, avgSendMs);
+      lastUs = nowUs;
+      totalCamUs = totalSendUs = 0;
+    }
+  }
+
+  client.stop();
+  g_streamFps = 0.0f;
+  if (writeError)
+    Log.printf("→ err stream ended after %u frames (write error)\n", frameCount);
+  else
+    Log.printf("→ 200 stream ended after %u frames (client closed)\n", frameCount);
+  // NOTE: g_streamActive is cleared by streamTask after cameraRelease(),
+  // so that stopStream() waiting on it guarantees the camera is fully released.
+}
+
+// ---------------------------------------------------------------------------
+// API: logs
+// ---------------------------------------------------------------------------
+
+static void handleLogs(WiFiClient& client) {
+  const char* p1;
+  size_t l1;
+  const char* p2;
+  size_t l2;
+  logGetParts(&p1, &l1, &p2, &l2);
+  size_t total = l1 + l2;
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ");
+  client.print(total);
+  client.print("\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+  if (l1)
+    sendBytes(client, (const uint8_t*)p1, l1);
+  if (l2)
+    sendBytes(client, (const uint8_t*)p2, l2);
+  client.stop();
+  Log.printf("→ 200 logs %u bytes\n", total);
+}
+
+// ---------------------------------------------------------------------------
+// API: stream FPS
+// ---------------------------------------------------------------------------
+
+static void handleStreamFps(WiFiClient& client) {
+  char buf[48];
+  snprintf(buf, sizeof(buf), "{\"fps\":%.1f,\"active\":%s}", g_streamFps.load(), g_streamActive ? "true" : "false");
+  client.print(
+      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+  client.print(buf);
+  client.stop();
+}
+
+struct StreamTaskArgs {
+  WiFiClient client;
+  String reqLine;
+};
+
+static void streamTask(void* arg) {
+  StreamTaskArgs* args = (StreamTaskArgs*)arg;
+  handleMjpeg(args->client, args->reqLine);
+  delete args;
+  // If a capture task is in progress (stream client disconnected during pause),
+  // let captureTask handle the camera release.
+  if (!g_captureActive)
+    cameraRelease();
+  // Clear g_streamActive only after the camera is released.  loop() calls
+  // stopStream() which busy-waits on this flag, so clearing it here guarantees
+  // that any new stream request cannot start until cameraRelease() has
+  // completed, preventing the new streamTask from using a camera being deinited
+  // by this task.
+  g_streamActive = false;
+  vTaskDelete(NULL);
+}
+
+// ---------------------------------------------------------------------------
+// Still photo capture
+// ---------------------------------------------------------------------------
+
+#define APPLY_IF_PRESENT(key, call)       \
+  {                                       \
+    String _v = parseParam(reqLine, key); \
+    if (_v.length()) {                    \
+      call;                               \
+    }                                     \
+  }
+
+// Must be called with cameraMutex held.
+// Applies only the OV3660 sensor settings that are explicitly present in the
+// URL query string, leaving all others unchanged.
+static void applyRawSensorSettings(sensor_t* s, const String& reqLine) {
+  APPLY_IF_PRESENT("quality", applyQuality(_v.toInt()))
+  APPLY_IF_PRESENT("brightness", s->set_brightness(s, _v.toInt()))
+  APPLY_IF_PRESENT("contrast", s->set_contrast(s, _v.toInt()))
+  APPLY_IF_PRESENT("saturation", s->set_saturation(s, _v.toInt()))
+  APPLY_IF_PRESENT("sharpness", s->set_sharpness(s, _v.toInt()))
+  APPLY_IF_PRESENT("denoise", s->set_denoise(s, _v.toInt()))
+  APPLY_IF_PRESENT("ae_level", s->set_ae_level(s, _v.toInt()))
+  APPLY_IF_PRESENT("wb_mode", {
+    int wm = _v.toInt();
+    s->set_whitebal(s, 1);
+    s->set_wb_mode(s, wm);
+  })
+  APPLY_IF_PRESENT("hmirror", s->set_hmirror(s, _v.toInt()))
+  APPLY_IF_PRESENT("vflip", s->set_vflip(s, _v.toInt()))
+  APPLY_IF_PRESENT("aec", s->set_exposure_ctrl(s, _v.toInt()))
+  APPLY_IF_PRESENT("aec_value", s->set_aec_value(s, _v.toInt()))
+  APPLY_IF_PRESENT("agc", s->set_gain_ctrl(s, _v.toInt()))
+  APPLY_IF_PRESENT("agc_gain", s->set_agc_gain(s, _v.toInt()))
+  APPLY_IF_PRESENT("gainceiling", s->set_gainceiling(s, (gainceiling_t)_v.toInt()))
+  APPLY_IF_PRESENT("awb_gain", s->set_awb_gain(s, _v.toInt()))
+  APPLY_IF_PRESENT("aec2", s->set_aec2(s, _v.toInt()))
+  APPLY_IF_PRESENT("bpc", s->set_bpc(s, _v.toInt()))
+  APPLY_IF_PRESENT("wpc", s->set_wpc(s, _v.toInt()))
+  APPLY_IF_PRESENT("raw_gma", s->set_raw_gma(s, _v.toInt()))
+  APPLY_IF_PRESENT("lenc", s->set_lenc(s, _v.toInt()))
+  APPLY_IF_PRESENT("dcw", s->set_dcw(s, _v.toInt()))
+  APPLY_IF_PRESENT("colorbar", s->set_colorbar(s, _v.toInt()))
+}
+
+static void handleCapture(WiFiClient& client, const String& reqLine) {
+  sensor_t* s = TimerCAM.Camera.sensor;
+  String resName = parseParam(reqLine, "res");
+  framesize_t fs = resName.length() > 0 ? resolveName(resName) : FRAMESIZE_UXGA;
+
+  bool rawMode = intParam(reqLine, "raw", 0) != 0;
+
+  xSemaphoreTake(cameraMutex, portMAX_DELAY);
+  applyFramesize(fs);
+
+  if (!rawMode) {
+    applyQuality(intParam(reqLine, "quality", 4));
+    applySensorSettings(s, reqLine);
+  } else {
+    applyRawSensorSettings(s, reqLine);
+  }
+
+  // At SXGA/UXGA the sensor runs at ~5–7 fps, so 2 stale frames cover only
+  // ~300–400 ms — not enough for AEC to converge. Discard more frames at
+  // large resolutions to let exposure settle before the keeper shot.
+  delay(300);
+  int staleCount = (fs >= FRAMESIZE_SXGA) ? 6 : 2;
+  for (int i = 0; i < staleCount; i++) {
+    camera_fb_t* stale = esp_camera_fb_get();
+    if (stale)
+      esp_camera_fb_return(stale);
+  }
+  camera_fb_t* fb = esp_camera_fb_get();
+  xSemaphoreGive(cameraMutex);
+
+  if (!fb) {
+    client.print("HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n");
+    client.stop();
+    Log.println("→ 500 capture: esp_camera_fb_get returned null");
+    return;
+  }
+
+  Log.printf("Capture: %ux%u %uB\n", fb->width, fb->height, fb->len);
+
+  {
+    int fd = client.fd();
+    if (fd >= 0) {
+      struct timeval tv = {10, 0};
+      setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+      int sndbuf = 32768;
+      setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+      // Disable Nagle: send each chunk immediately without waiting for ACK.
+      // Nagle + receiver delayed-ACK interact to stall transfers by ~200
+      // ms/RTT.
+      int flag = 1;
+      setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+    }
+  }
+
+  uint16_t capW = fb->width, capH = fb->height;
+  size_t capLen = fb->len;
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: ");
+  client.print(capLen);
+  client.print("\r\nConnection: close\r\n\r\n");
+
+  bool ok = sendBytes(client, fb->buf, capLen);
+
+  esp_camera_fb_return(fb);
+  client.stop();
+  if (ok)
+    Log.printf("→ 200 capture %ux%u %uB\n", capW, capH, capLen);
+  else
+    Log.printf("→ err capture %ux%u %uB (send truncated)\n", capW, capH, capLen);
+}
+
+struct CaptureTaskArgs {
+  WiFiClient client;
+  String reqLine;
+  bool wasStreaming;
+};
+
+static void captureTask(void* arg) {
+  CaptureTaskArgs* args = (CaptureTaskArgs*)arg;
+  bool wasStreaming = args->wasStreaming;
+  String reqLine = args->reqLine;
+  g_captureActive = true;
+  handleCapture(args->client, args->reqLine);
+  delete args;
+
+  if (wasStreaming) {
+    // Tell stream to restore its own settings on the next frame.
+    g_settingsDirty = true;
+    // Release the pause so the stream loop can resume.
+    g_streamPause = false;
+    // If the stream client disconnected while we were paused, the stream
+    // task skipped cameraRelease() — we must do it here instead.
+    if (!g_streamActive)
+      cameraRelease();
+  } else {
+    cameraRelease();
+  }
+  g_captureActive = false;
+
+  vTaskDelete(NULL);
+}
+
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
+
+// Asks the running stream to pause at the next frame boundary and waits up to
+// 3 s for acknowledgement. Returns true if the stream is now paused (caller
+// owns the camera). Returns false if there was no stream, or the stream exited
+// before it could acknowledge (treat as no stream).
+static bool pauseStreamForCapture() {
+  if (!g_streamActive)
+    return false;
+  g_streamPause = true;
+  unsigned long deadline = millis() + 3000;
+  while (!g_streamPaused && g_streamActive && millis() < deadline)
+    delay(10);
+  if (!g_streamPaused) {
+    g_streamPause = false;
+    return false;
+  }
+  return true;
+}
+
+void loop() {
+  delay(10);
+
+  if (wifiMaintain() && !wifiIsAP() && !g_mdnsName.isEmpty())
+    if (!MDNS.begin(g_mdnsName.c_str()))
+      Log.println("mDNS start failed");
+
+  WiFiClient client = server.available();
+  if (!client)
+    return;
+
+  unsigned long deadline = millis() + 2000;
+  while (!client.available() && millis() < deadline)
+    delay(1);
+  if (!client.available()) {
+    client.stop();
+    return;
+  }
+
+  String reqLine = client.readStringUntil('\n');
+  reqLine.trim();
+  String authHeader;
+  int bodyLen = readHeaders(client, authHeader);
+
+  Log.println(reqLine);
+
+  bool isGet = reqLine.startsWith("GET ");
+  bool isPost = reqLine.startsWith("POST ");
+  bool isPatch = reqLine.startsWith("PATCH ");
+  if (!isGet && !isPost && !isPatch) {
+    send405(client);
+    return;
+  }
+
+  String path = parsePath(reqLine);
+
+  if (path != "/manifest.json" && !authCheck(authHeader)) {
+    authDeny(client);
+    return;
+  }
+
+  // --- POST routes ---
+  if (isPost) {
+    String body = readBody(client, bodyLen);
+    if (path == "/api/restart") {
+      client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+      client.print("Restarting.");
+      client.flush();
+      client.stop();
+      Log.println("→ 200 restart");
+      delay(500);
+      ESP.restart();
+    } else if (path == "/api/wifi/reconnect") {
+      client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+      client.print("Reconnecting to WiFi.");
+      client.flush();
+      client.stop();
+      Log.println("→ 200 wifi reconnect");
+      delay(3000);
+      WiFi.disconnect();
+      wifiConnect();
+      if (!wifiIsAP() && !g_mdnsName.isEmpty())
+        if (!MDNS.begin(g_mdnsName.c_str()))
+          Log.println("mDNS start failed");
+    } else if (path == "/api/poweroff")
+      handlePowerOff(client, reqLine);
+    else if (path == "/api/led/blink")
+      handleLedBlink(client, body);
+    else
+      send405(client);
+    return;
+  }
+
+  // --- PATCH routes ---
+  if (isPatch) {
+    String body = readBody(client, bodyLen);
+    if (path == "/api/led")
+      handleLedPatch(client, body);
+    else
+      send405(client);
+    return;
+  }
+
+  // --- Catalog lookup (GET only) ---
+  String lookup;
+  if (path == "/") {
+    lookup = "index.html";
+  } else {
+    lookup = path.substring(1);
+    if (lookup.indexOf('.') < 0)
+      lookup += ".html";
+  }
+  const StaticFile* sf = staticFind(lookup.c_str());
+  if (sf) {
+    serveStatic(client, sf);
+    return;
+  }
+
+  // --- GET API routes ---
+  if (path.startsWith("/api/")) {
+    if (path == "/api/logs") {
+      handleLogs(client);
+    } else if (path == "/api/status") {
+      handleStatus(client);
+    } else if (path == "/api/led") {
+      handleLedGet(client);
+    } else if (path == "/api/streamfps") {
+      handleStreamFps(client);
+    } else if (path == "/api/cam/stream.mjpeg") {
+      stopStream();
+      if (!cameraEnsureReady()) {
+        send503(client, "Camera unavailable.");
+        return;
+      }
+      g_streamActive = true;
+      StreamTaskArgs* args = new StreamTaskArgs{client, reqLine};
+      if (xTaskCreate(streamTask, "stream", 8192, args, 1, NULL) != pdPASS) {
+        g_streamActive = false;
+        delete args;
+        cameraRelease();
+        send503(client, "Out of resources.");
+      }
+    } else if (path == "/api/cam/capture.jpg") {
+      bool wasStreaming = pauseStreamForCapture();
+      if (!wasStreaming && !cameraEnsureReady()) {
+        send503(client, "Camera unavailable.");
+        return;
+      }
+      CaptureTaskArgs* args = new CaptureTaskArgs{client, reqLine, wasStreaming};
+      if (xTaskCreate(captureTask, "capture", 8192, args, 1, NULL) != pdPASS) {
+        delete args;
+        if (wasStreaming)
+          g_streamPause = false;  // let the stream resume
+        else
+          cameraRelease();
+        send503(client, "Out of resources.");
+      }
+    } else {
+      send404(client);
+    }
+    return;
+  }
+
+  send404(client);
+}

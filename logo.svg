@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <clipPath id="lens-clip">
+      <circle cx="50" cy="50" r="28.125"/>
+    </clipPath>
+  </defs>
+
+  <!-- Outer iris — medium green -->
+  <circle cx="50" cy="50" r="46.875" fill="#103a1c"/>
+  <!-- Groove — very dark -->
+  <circle cx="50" cy="50" r="40.625" fill="#061a0c"/>
+  <!-- Inner band — brighter green -->
+  <circle cx="50" cy="50" r="34.375" fill="#164c22"/>
+  <!-- Dark lens body -->
+  <circle cx="50" cy="50" r="28.125" fill="#0a0a12"/>
+
+  <!-- Six-blade aperture -->
+  <polygon points="77.18,42.72 77.18,57.28 58.12,54.69" fill="#101028"/>
+  <polygon points="69.89,69.89 57.28,77.18 50,59.38"    fill="#101028"/>
+  <polygon points="42.72,77.18 30.11,69.89 41.88,54.69" fill="#101028"/>
+  <polygon points="22.82,57.28 22.82,42.72 41.88,45.31" fill="#101028"/>
+  <polygon points="30.11,30.11 42.72,22.82 50,40.62"    fill="#101028"/>
+  <polygon points="57.28,22.82 69.89,30.11 58.12,45.31" fill="#101028"/>
+
+  <!-- Centre pupil -->
+  <circle cx="50" cy="50" r="9.375" fill="#020208"/>
+
+  <!-- Specular reflections (glass highlights), clipped to lens body -->
+  <g clip-path="url(#lens-clip)">
+    <ellipse cx="39.06" cy="32.81" rx="7.81" ry="7.81" fill="rgba(160,220,180,0.35)"/>
+    <ellipse cx="40.62" cy="32.81" rx="3.13" ry="4.69" fill="rgba(220,255,230,0.51)"/>
+  </g>
+
+  <!-- Outer rim -->
+  <circle cx="50" cy="50" r="46.875" fill="none" stroke="#1e5a2d" stroke-width="1.2"/>
+</svg>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KikkerX — Video</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#103a1c" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/settings.css" />
+    <link rel="stylesheet" href="/video.css" />
+  </head>
+  <body>
+    <div id="main-layout">
+      <div id="canvas-area">
+        <div class="bar">
+          <span class="nav-title"><a href="/">⇦</a> Video</span>
+          <div class="bar-center">
+            <select id="res">
+              <option value="QQVGA">160×120 (QQVGA)</option>
+              <option value="QVGA">320×240 (QVGA)</option>
+              <option value="CIF">400×296 (CIF)</option>
+              <option value="VGA" selected>640×480 (VGA)</option>
+              <option value="SVGA">800×600 (SVGA)</option>
+              <option value="XGA">1024×768 (XGA)</option>
+              <option value="SXGA">1280×1024 (SXGA)</option>
+              <option value="UXGA">1600×1200 (UXGA)</option>
+            </select>
+            <button type="button" id="res-reset" class="reset-btn">↺</button>
+            <span id="status">⏳</span>
+          </div>
+          <div class="bar-center">
+            <button type="button" id="refresh-btn">↻ Refresh</button>
+            <button type="button" id="fs-btn" title="Fullscreen">⛶</button>
+          </div>
+        </div>
+        <div id="canvas-wrap">
+          <img id="stream-img" alt="" />
+        </div>
+      </div>
+      <div id="settings-area">
+        <div id="settings-container"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/video.mjs"></script>
+  </body>
+</html>

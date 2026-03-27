@@ -1,0 +1,18 @@
+; Local PlatformIO overrides — copy to configs/platformio.ini (gitignored).
+;
+; Extends the root platformio.ini. Provide your own build params, and most notably,
+; custom_config_files to configure multiple cameras. See configs/README.md for details.
+
+[env:kikker-x-living-room]
+extends = kikker-x
+custom_config_files =
+    configs/default_config.json
+    configs/custom/home_config.json
+    configs/custom/living_room_config.json
+
+[env:kikker-x-bedroom]
+extends = kikker-x
+custom_config_files =
+    configs/default_config.json
+    configs/custom/home_config.json
+    configs/custom/bedroom_config.json

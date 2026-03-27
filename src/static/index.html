@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KikkerX</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#103a1c" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/index.css" />
+  </head>
+  <body>
+    <div class="page">
+      <h1><img src="/logo.svg" class="logo" alt="" />KikkerX</h1>
+
+      <div class="links">
+        <a href="/photo">Photo</a>
+        <a href="/video">Video</a>
+      </div>
+
+      <div class="section-hd">
+        <h2>Status</h2>
+        <button type="button" id="refresh-btn" class="refresh-btn" title="Refresh">↻</button>
+      </div>
+      <div class="status-info">
+        <span class="sl">Battery:</span><span id="status-bat">…</span>
+        <span class="sl">Device ID:</span><span id="status-id">…</span>
+        <span class="sl">WiFi:</span><span id="status-wifi">…</span>
+        <span class="sl">Version:</span><span id="status-ver">…</span>
+      </div>
+
+      <a href="/logs" style="display: block; color: #555; font-size: 12px; margin: -16px 0 24px">Logs</a>
+
+      <h2>LED</h2>
+      <div class="led-row">
+        <button type="button" id="led-btn" class="led-btn" title="Toggle the LED state on the device">
+          <div style="margin-bottom: 3px">●</div>
+        </button>
+        <button type="button" id="blink-btn" class="blink-btn" title="Blink the LED on the device">★ Blink</button>
+      </div>
+
+      <h2>Power</h2>
+      <div class="btn-row">
+        <button type="button" id="reconnect-btn" class="restart-btn"
+          title="Disconnect from WiFi and reconnect">Reconnect</button>
+        <button type="button" id="restart-btn" class="restart-btn" title="Restart the device">Restart</button>
+      </div>
+      <div class="btn-row">
+        <input type="number" id="dur-val" class="dur-val" min="1" max="255" value="30" />
+        <select id="dur-unit">
+          <option value="m">minutes</option>
+          <option value="h">hours</option>
+          <option value="permanent">permanent</option>
+        </select>
+        <button type="button" id="poweroff-btn" class="off-btn"
+          title="Power off the device and power on again after the specified time">Power off</button>
+      </div>
+      <div id="msg"></div>
+    </div>
+
+    <script type="module" src="/index.mjs"></script>
+  </body>
+</html>

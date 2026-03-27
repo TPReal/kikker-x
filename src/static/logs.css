@@ -1,0 +1,35 @@
+.page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  box-sizing: border-box;
+}
+h1 {
+  color: #fff;
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+#log {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.5;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+#status {
+  color: #555;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.top-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 4px;
+}

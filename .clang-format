@@ -1,0 +1,10 @@
+---
+BasedOnStyle: Google
+ColumnLimit: 120
+IndentWidth: 2
+UseTab: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+AlignAfterOpenBracket: DontAlign
+AlignTrailingComments: false

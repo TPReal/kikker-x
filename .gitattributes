@@ -1,0 +1,21 @@
+* text=auto eol=lf
+
+*.cpp text eol=lf
+*.h   text eol=lf
+*.mjs text eol=lf
+*.py  text eol=lf
+*.sh  text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.svg  text eol=lf
+*.ini  text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+
+*.png binary
+*.jpg binary
+
+*.cpp diff=cpp
+*.h   diff=cpp

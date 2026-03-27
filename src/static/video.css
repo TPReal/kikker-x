@@ -1,0 +1,7 @@
+/* Override the global #stream-img: no auto-height or centering margin
+   inside the flex canvas-wrap container. */
+#stream-img {
+  display: block;
+  max-width: 100%;
+  background: #000;
+}

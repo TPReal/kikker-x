@@ -1,0 +1,42 @@
+{
+
+  // mDNS address: registered as <value>.local, or null to disable mDNS.
+  "mdns": "kikker-x",
+
+  // List of known networks. The device connects to the strongest visible one.
+  "known_networks": [
+    {
+      "ssid": "WifiName",
+      "password": "WifiPassword (can be obscured like this: \u0070\u0061\u0073\u0073)"
+      // Optional static IP configuration (uncomment to use):
+      // "static_ip": "192.168.1.100",
+      // "subnet_mask": "255.255.255.0",
+      // "gateway": "192.168.1.1",
+      // "dns": "8.8.8.8"
+    }
+    // More known networks:
+    // , { "ssid": "...", "password": "..." }
+  ],
+
+  // Access point to start when no known network is reachable (or none is configured).
+  // The device will switch back to station mode automatically once a known
+  // network becomes visible again.
+  // Remove or set to null to disable AP fallback (device retries indefinitely).
+  "fallback_access_point": {
+    "ssid": "KikkerX",
+    "password": "kikker-x-pass (can be obscured like this: \u0070\u0061\u0073\u0073)"
+  },
+
+  // Authentication for the web interface.
+  // To disable auth, set auth to null:
+  //   "auth": null,
+  //
+  // Generate the password hash (password entered without echo):
+  //   IFS= read -rsp 'Password: ' pass && echo && printf '%s' "$pass" | sha256sum | cut -d' ' -f1; unset pass
+  //
+  "auth": {
+    "username": "admin",
+    "pass_sha256": "your-sha256-hash-here"
+  }
+
+}
