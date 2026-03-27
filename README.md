@@ -31,6 +31,21 @@ no app or cloud required.
   reachable; switches back to station mode automatically when a known network reappears.
 - **mDNS**: reachable at `http://kikker-x.local/` or a custom hostname.
 - **Basic auth** (optional): username + SHA-256-hashed password in the config file.
+- **Mobile-friendly UI**: responsive layout that works well on phones and tablets.
+
+<table>
+  <tr>
+    <td valign="top">
+      <a href="docs/screenshots/main.png"><img src="docs/screenshots/main.png" alt="Home page" width="240"></a><br>
+      <a href="docs/screenshots/video.png"><img src="docs/screenshots/video.png" alt="Video stream" width="240"></a><br>
+      <a href="docs/screenshots/photo.png"><img src="docs/screenshots/photo.png" alt="Photo capture" width="240"></a><br>
+      <a href="docs/screenshots/mobile.png"><img src="docs/screenshots/mobile.png" alt="Mobile view" width="240"></a>
+    </td>
+    <td valign="top">
+      <a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" alt="Settings panel" width="240"></a>
+    </td>
+  </tr>
+</table>
 
 ---
 
