@@ -4,6 +4,7 @@
 #include "config.h"
 
 #include <cJSON.h>
+#include <esp_random.h>
 #include <incbin.h>
 #include <string.h>
 
@@ -19,6 +20,7 @@ static Config s_config = {};
 static WifiEntry s_wifi_entries[MAX_WIFI_ENTRIES];
 static ApFallback s_ap = {};
 static bool s_parsed = false;
+static char s_ap_random_password[13];
 
 Config getConfig() {
   if (s_parsed)
@@ -89,9 +91,18 @@ Config getConfig() {
     cJSON* pass = cJSON_GetObjectItemCaseSensitive(apNode, "password");
     if (cJSON_IsString(ssid)) {
       s_ap.ssid = ssid->valuestring;
-      s_ap.password = cJSON_IsString(pass) ? pass->valuestring : nullptr;
+      if (cJSON_IsString(pass) && strcmp(pass->valuestring, "RANDOM") == 0) {
+        static const char kChars[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        for (int i = 0; i < 12; i++)
+          s_ap_random_password[i] = kChars[esp_random() % 55];
+        s_ap_random_password[12] = '\0';
+        s_ap.password = s_ap_random_password;
+        Log.printf("config: AP fallback SSID=%s  password: %s\n", s_ap.ssid, s_ap.password);
+      } else {
+        s_ap.password = cJSON_IsString(pass) ? pass->valuestring : nullptr;
+        Log.printf("config: AP fallback SSID=%s %s\n", s_ap.ssid, s_ap.password ? "(password set)" : "(open)");
+      }
       s_config.ap_fallback = &s_ap;
-      Log.printf("config: AP fallback SSID=%s %s\n", s_ap.ssid, s_ap.password ? "(password set)" : "(open)");
     }
   }
 

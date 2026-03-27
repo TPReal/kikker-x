@@ -24,7 +24,7 @@
   // Remove or set to null to disable AP fallback (device retries indefinitely).
   "fallback_access_point": {
     "ssid": "KikkerX",
-    "password": "kikker-x-pass (can be obscured like this: \u0070\u0061\u0073\u0073)"
+    "password": "your-ap-password (or \"RANDOM\" to generate one at boot and print it to serial)"
   },
 
   // Authentication for the web interface.

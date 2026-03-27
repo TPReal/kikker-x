@@ -60,6 +60,40 @@ everything at v1.)
 
 ---
 
+## Quick start
+
+To flash a pre-built firmware without installing any tooling, download `bootloader.bin`, `partitions.bin`, and
+`firmware.bin` from the [latest release](../../releases/latest) and flash them with
+[esptool](https://github.com/espressif/esptool). Install it with `pip install esptool`, then:
+
+**Linux / macOS** — replace `/dev/ttyUSB0` with your port:
+
+```sh
+esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 115200 write-flash \
+    0x1000  bootloader.bin \
+    0x8000  partitions.bin \
+    0x10000 firmware.bin
+```
+
+**Windows** — replace `COM3` with your port (check Device Manager). Use `esptool.exe` if you have the standalone
+executable, or `esptool.py` if installed via pip:
+
+```powershell
+esptool.exe --chip esp32 --port COM3 --baud 115200 write-flash `
+    0x1000  bootloader.bin `
+    0x8000  partitions.bin `
+    0x10000 firmware.bin
+```
+
+The default firmware starts an access point named **KikkerX** with a randomly generated password. Connect a serial
+monitor (115200 baud) to read the password from the boot log, then connect to the AP and open
+`http://192.168.4.1/`.
+
+To use your own WiFi network or change any settings, follow the [Getting started](#getting-started) section to build
+and flash a custom config.
+
+---
+
 ## Getting started
 
 ### 1. Install tooling
@@ -118,7 +152,7 @@ A minimal config looks like:
   ],
   "fallback_access_point": {
     "ssid": "KikkerX",
-    "password": "changeme"
+    "password": "password or RANDOM"
   },
   "auth": null
 }
@@ -131,6 +165,8 @@ If no known network is reachable after three scan attempts, the device starts a 
 `fallback_access_point` credentials. Connect to it and browse to `http://192.168.4.1/` to reach the web interface. The
 device scans every 5 minutes while in AP mode and switches back to station mode automatically once a known network
 becomes visible again.
+
+Setting `"password": "RANDOM"` generates a random 12-character password at boot and prints it to the serial log.
 
 Set `"fallback_access_point": null` to disable the fallback — the device will then retry indefinitely instead of
 starting an AP.

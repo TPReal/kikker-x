@@ -3,7 +3,7 @@
   "known_networks": [],
   "fallback_access_point": {
     "ssid": "KikkerX",
-    "password": "kikker-x-pass"
+    "password": "RANDOM"
   },
   "auth": null
 }
