@@ -147,7 +147,7 @@ function doPowerOff() {
     seconds = Math.round(parseFloat(durVal.value) * 60);
   }
   const MAX_SLEEP_S = 255 * 60; // BM8563 timer limit: 255 minutes
-  if (seconds <= 0) {
+  if (unit !== "permanent" && seconds <= 0) {
     alert("Duration must be greater than 0.");
     return;
   }
