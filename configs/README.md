@@ -24,18 +24,19 @@ custom_config_files = configs/default_config.json
 1. Create JSON config files under `configs/custom/` (gitignored).
 
 2. Copy `configs/platformio.ini.template` to `configs/platformio.ini` (also gitignored) and add environments that layer
-   your files on top of the defaults. For example:
+   your files on top of the defaults. Extend the appropriate board base (`kikker-x-timercam` or `kikker-x-wrovercam`).
+   For example:
 
    ```ini
-   [env:kikker-x-living-room]
-   extends = kikker-x
+   [env:kikker-x-timercam-living-room]
+   extends = kikker-x-timercam
    custom_config_files =
        configs/default_config.json
        configs/custom/home_config.json
        configs/custom/living_room_config.json
 
-   [env:kikker-x-bedroom]
-   extends = kikker-x
+   [env:kikker-x-wrovercam-bedroom]
+   extends = kikker-x-wrovercam
    custom_config_files =
        configs/default_config.json
        configs/custom/home_config.json

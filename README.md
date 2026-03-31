@@ -2,16 +2,20 @@
 
 <img src="logo.svg" alt="KikkerX logo" width="96">
 
-Wi-Fi camera server firmware for the [M5Stack Timer Camera X](https://docs.m5stack.com/en/unit/timercam_x). Streams live
-MJPEG video, serves full-resolution still photos, and provides a self-contained web interface — all over plain HTTP with
-no app or cloud required.
+Wi-Fi camera server firmware for ESP32-based cameras. Streams live MJPEG video, serves full-resolution still photos,
+and provides a self-contained web interface — all over plain HTTP with no app or cloud required.
 
 ---
 
 ## Hardware
 
-- **[M5Stack Timer Camera X](https://docs.m5stack.com/en/unit/timercam_x)** — ESP32-based board with an OV3660 image
-  sensor (up to 1600×1200), built-in LiPo charger, BM8563 RTC for timed sleep, and a blue status LED.
+Supported boards:
+
+- **[M5Stack Timer Camera X](https://docs.m5stack.com/en/unit/timercam_x)** — OV3660 sensor (up to 1600×1200),
+  built-in LiPo charger, BM8563 RTC for timed sleep, and a blue status LED.
+- **[ESP-WROVER-DEV](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/hw-reference/esp32/get-started-wrover-kit.html)**
+  (and compatible ESP32-WROVER boards) — OV3660 sensor, 4 MB PSRAM, user-controllable blue IO2 LED. No battery
+  monitoring; uses the ESP32's built-in timer for timed wake-up.
 
 ---
 
@@ -200,14 +204,15 @@ This device will then be reachable at `http://kikker-x-garden.local/`.
 
 ### 3. Build and flash
 
-The default environment uses `configs/default_config.json`:
+Two built-in environments cover the supported boards:
 
 ```sh
-pio run --target upload
+pio run -e kikker-x-timercam-default --target upload   # M5Stack Timer Camera X
+pio run -e kikker-x-wrovercam-default --target upload  # ESP-WROVER-DEV
 ```
 
-To build for a specific camera, pass its environment name with `-e`. Custom environments are defined in
-`configs/platformio.ini` (see `configs/platformio.ini.template` and `configs/README.md`):
+For named per-device environments, define them in `configs/platformio.ini` (see `configs/platformio.ini.template` and
+`configs/README.md`) and then:
 
 ```sh
 pio run -e kikker-x-garden --target upload
@@ -264,8 +269,12 @@ curl "http://kikker-x.local/api/status"
 # → { "battery": { "voltage": 3850, "level": 75 },
 #      "id": "c0ffeefacade",
 #      "wifi": { "mode": "station", "ssid": "HomeNet", "ip": "192.168.1.50", "rssi": -52 },
-#      "version": "1.0.0" }
+#      "version": "1.1.0",
+#      "features": { "board": "M5Stack Timer Camera X", "led": true, "battery": true } }
 ```
+
+`battery` is omitted for boards without battery monitoring. `features.led` and `features.battery` indicate which
+optional hardware is present.
 
 In AP mode `wifi.mode` is `"ap"`, `ssid` and `ip` reflect the soft AP, and `rssi` is absent.
 
@@ -313,9 +322,8 @@ curl -X POST "http://kikker-x.local/api/poweroff?duration=3600"     # sleep for 
 curl -X POST "http://kikker-x.local/api/restart"                    # reboot the device
 ```
 
-`duration=0` powers off permanently. Any other value (in seconds) puts the device into RTC-timed deep sleep using the
-BM8563 RTC, and it wakes automatically after `N` seconds. Maximum sleep duration is 15,300 seconds (4 hours and 15
-minutes). Values above that are clamped.
+`duration=0` powers off permanently. Any other value (in seconds) puts the device into deep sleep and it wakes
+automatically after `N` seconds. The web UI enforces a maximum of 15,300 seconds (255 minutes).
 
 `/api/restart` performs a clean software reboot (`ESP.restart()`). The device responds with `200 OK` before rebooting,
 so the response confirms the request was received.
@@ -439,8 +447,9 @@ Press Ctrl-C to stop cleanly — the current segment is finalized before exit.
 `fake_server.py` serves the static UI from `src/static/` and simulates all API endpoints — no hardware needed.
 
 ```sh
-./fake_server.py          # http://localhost:8080/
-./fake_server.py 9000     # custom port
+./fake_server.py                        # http://localhost:8080/, Timer Camera X features
+./fake_server.py --port 9000            # custom port
+./fake_server.py --board wrovercam      # simulate ESP-WROVER-DEV (no battery)
 ```
 
 `/api/restart` re-executes the server process. `/api/poweroff` shuts it down.
@@ -453,6 +462,8 @@ Press Ctrl-C to stop cleanly — the current segment is finalized before exit.
 | ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `src/`                                                        | The firmware source code                                                      |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`kikker-x.cpp`            | Main firmware (HTTP server, camera, LED, power)                               |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`board.h`                 | Board abstraction interface (camera init, LED, battery, sleep)                |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`boards/`                 | Per-board implementations (`timercam_board.cpp`, `wrover_board.cpp`)          |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`static/`                 | Web assets (HTML, CSS, JS, SVG)                                               |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_config.json`            | Generated at build time by `prepare_config.py` (merged from configured files) |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_static_files.h`         | Generated at build time by `embed_static.py` (from `src/static/*`)            |

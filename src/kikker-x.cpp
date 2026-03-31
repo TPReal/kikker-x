@@ -1,5 +1,5 @@
 /**
- * kikker.ino — MJPEG camera server for M5Stack Timer Camera X
+ * kikker.ino — MJPEG camera server for ESP32 camera boards
  *
  * Static files (served from catalog):
  *   GET /                → index.html  (home page: battery, power-off, links)
@@ -27,13 +27,14 @@
 #include <ESPmDNS.h>
 #include <WiFi.h>
 #include <cJSON.h>
+#include <esp_camera.h>
 #include <lwip/sockets.h>
 
 #include <atomic>
 
-#include "M5TimerCAM.h"
 #include "_version.h"
 #include "auth.h"
+#include "board.h"
 #include "config.h"
 #include "log.h"
 #include "static.h"
@@ -44,12 +45,14 @@
 // ---------------------------------------------------------------------------
 
 static void blinkLed(int times) {
+  if (!boardFeatures().led)
+    return;
   for (int i = 0; i < times; i++) {
     if (i > 0)
       delay(100);
-    TimerCAM.Power.setLed(255);
+    boardSetLed(true);
     delay(100);
-    TimerCAM.Power.setLed(0);
+    boardSetLed(false);
   }
 }
 
@@ -143,13 +146,8 @@ static int currentQuality = -1;
 static bool cameraEnsureReady() {
   if (g_cameraReady)
     return true;
-  if (!TimerCAM.Camera.begin()) {
-    Log.println("Camera init failed");
+  if (!boardCameraInit())
     return false;
-  }
-  TimerCAM.Camera.sensor->set_pixformat(TimerCAM.Camera.sensor, PIXFORMAT_JPEG);
-  TimerCAM.Camera.sensor->set_vflip(TimerCAM.Camera.sensor, 1);
-  TimerCAM.Camera.sensor->set_hmirror(TimerCAM.Camera.sensor, 0);
   g_cameraReady = true;
   Log.println("Camera ready");
   return true;
@@ -171,18 +169,21 @@ static void cameraRelease() {
 static void applyFramesize(framesize_t fs) {
   if (fs == currentFramesize)
     return;
-  TimerCAM.Camera.sensor->set_framesize(TimerCAM.Camera.sensor, fs);
+  sensor_t* s = esp_camera_sensor_get();
+  s->set_framesize(s, fs);
   currentFramesize = fs;
   delay(150);
-  if (TimerCAM.Camera.get())
-    TimerCAM.Camera.free();
+  camera_fb_t* discard = esp_camera_fb_get();
+  if (discard)
+    esp_camera_fb_return(discard);
 }
 
 // Must be called with cameraMutex held.
 static void applyQuality(int q) {
   if (q == currentQuality)
     return;
-  TimerCAM.Camera.sensor->set_quality(TimerCAM.Camera.sensor, q);
+  sensor_t* s = esp_camera_sensor_get();
+  s->set_quality(s, q);
   currentQuality = q;
 }
 
@@ -201,7 +202,7 @@ void setup() {
   Serial.begin(115200);
   logInit();
   getConfig();  // parse and cache early so log output appears at startup
-  TimerCAM.begin(true);  // true = enable RTC (BM8563) for timerSleep()
+  boardBegin();
 
   cameraMutex = xSemaphoreCreateMutex();
   if (!cameraMutex) {
@@ -436,7 +437,7 @@ static void handleLedPatch(WiFiClient& client, const String& body) {
     cJSON* state = cJSON_GetObjectItem(json, "state");
     if (cJSON_IsBool(state)) {
       g_ledState = cJSON_IsTrue(state);
-      TimerCAM.Power.setLed(g_ledState ? 255 : 0);
+      boardSetLed(g_ledState);
       Log.printf("LED → %s\n", g_ledState ? "on" : "off");
     }
     cJSON_Delete(json);
@@ -492,7 +493,7 @@ static void handleLedBlink(WiFiClient& client, const String& body) {
     int comma = pattern.indexOf(',', pos);
     String tok = (comma >= 0) ? pattern.substring(pos, comma) : pattern.substring(pos);
     tok.trim();
-    TimerCAM.Power.setLed(on ? 255 : 0);
+    boardSetLed(on);
     delay(tok.toInt());
     on = !on;
     if (comma < 0)
@@ -500,7 +501,7 @@ static void handleLedBlink(WiFiClient& client, const String& body) {
     pos = comma + 1;
   }
   g_ledState = saved;
-  TimerCAM.Power.setLed(g_ledState ? 255 : 0);
+  boardSetLed(g_ledState);
 }
 
 // ---------------------------------------------------------------------------
@@ -508,8 +509,8 @@ static void handleLedBlink(WiFiClient& client, const String& body) {
 // ---------------------------------------------------------------------------
 
 static void handleStatus(WiFiClient& client) {
-  int16_t voltage = TimerCAM.Power.getBatteryVoltage();
-  int16_t level = TimerCAM.Power.getBatteryLevel();
+  BoardFeatures feat = boardFeatures();
+  BatteryData bat = feat.battery ? boardBattery() : BatteryData{};
   uint64_t mac = ESP.getEfuseMac();
   char macStr[13];
   snprintf(macStr, sizeof(macStr), "%02x%02x%02x%02x%02x%02x", (int)((mac >> 40) & 0xff), (int)((mac >> 32) & 0xff),
@@ -517,10 +518,12 @@ static void handleStatus(WiFiClient& client) {
 
   bool isAP = wifiIsAP();
   cJSON* root = cJSON_CreateObject();
-  cJSON* battery = cJSON_CreateObject();
-  cJSON_AddNumberToObject(battery, "voltage", voltage);
-  cJSON_AddNumberToObject(battery, "level", level);
-  cJSON_AddItemToObject(root, "battery", battery);
+  if (feat.battery) {
+    cJSON* battery = cJSON_CreateObject();
+    cJSON_AddNumberToObject(battery, "voltage", bat.voltage);
+    cJSON_AddNumberToObject(battery, "level", bat.level);
+    cJSON_AddItemToObject(root, "battery", battery);
+  }
   cJSON_AddStringToObject(root, "id", macStr);
   cJSON* wifi = cJSON_CreateObject();
   cJSON_AddStringToObject(wifi, "mode", isAP ? "ap" : "station");
@@ -535,6 +538,11 @@ static void handleStatus(WiFiClient& client) {
   }
   cJSON_AddItemToObject(root, "wifi", wifi);
   cJSON_AddStringToObject(root, "version", FIRMWARE_VERSION);
+  cJSON* features = cJSON_CreateObject();
+  cJSON_AddStringToObject(features, "board", feat.name);
+  cJSON_AddBoolToObject(features, "led", feat.led);
+  cJSON_AddBoolToObject(features, "battery", feat.battery);
+  cJSON_AddItemToObject(root, "features", features);
 
   char* json = cJSON_PrintUnformatted(root);
   cJSON_Delete(root);
@@ -546,7 +554,10 @@ static void handleStatus(WiFiClient& client) {
     free(json);
   }
   client.stop();
-  Log.printf("→ 200 status %dmV %d%% %s\n", (int)voltage, (int)level, isAP ? "ap" : "station");
+  if (feat.battery)
+    Log.printf("→ 200 status %dmV %d%% %s\n", (int)bat.voltage, (int)bat.level, isAP ? "ap" : "station");
+  else
+    Log.printf("→ 200 status %s\n", isAP ? "ap" : "station");
 }
 
 // ---------------------------------------------------------------------------
@@ -560,14 +571,10 @@ static void doPowerOff(int duration) {
   delay(500);
   Serial.flush();
   if (duration == 0) {
-    TimerCAM.Power.powerOff();
+    boardPowerOff();
   } else {
-    // Release the camera: the camera driver (sccb_i2c_port=0) shares the
-    // I2C bus (GPIO12/14) with the BM8563 RTC.  Deinit it first so that
-    // the subsequent Wire re-init can communicate with the RTC cleanly.
     cameraRelease();
-    TimerCAM.Rtc.begin();
-    TimerCAM.Power.timerSleep(duration);
+    boardTimerSleep(duration);
   }
 }
 
@@ -590,7 +597,7 @@ static void handlePowerOff(WiFiClient& client, const String& reqLine) {
 // ---------------------------------------------------------------------------
 
 static void handleMjpeg(WiFiClient& client, const String& reqLine) {
-  sensor_t* s = TimerCAM.Camera.sensor;
+  sensor_t* s = esp_camera_sensor_get();
   framesize_t streamFs = resolveName(parseParam(reqLine, "res"));
   int streamQuality = intParam(reqLine, "quality", 12);
 
@@ -598,6 +605,14 @@ static void handleMjpeg(WiFiClient& client, const String& reqLine) {
   applyFramesize(streamFs);
   applyQuality(streamQuality);
   applySensorSettings(s, reqLine);
+  // Discard 2 frames so the sensor settles before we start streaming.
+  // With GRAB_LATEST the DMA runs continuously; the first frame(s) may have
+  // been captured before (or during) the settings write.
+  for (int i = 0; i < 2; i++) {
+    camera_fb_t* d = esp_camera_fb_get();
+    if (d)
+      esp_camera_fb_return(d);
+  }
   xSemaphoreGive(cameraMutex);
 
   {
@@ -660,13 +675,12 @@ static void handleMjpeg(WiFiClient& client, const String& reqLine) {
       applySensorSettings(s, reqLine);
       g_settingsDirty = false;
       // Discard the frame that was captured with the photo's settings.
-      if (TimerCAM.Camera.get())
-        TimerCAM.Camera.free();
+      camera_fb_t* stale = esp_camera_fb_get();
+      if (stale)
+        esp_camera_fb_return(stale);
     }
-    bool got = TimerCAM.Camera.get();
-    // Save fb pointer before releasing the mutex — the capture task could
-    // otherwise overwrite Camera.fb via applyFramesize() in the gap.
-    camera_fb_t* fb = TimerCAM.Camera.fb;
+    camera_fb_t* fb = esp_camera_fb_get();
+    bool got = fb != nullptr;
     xSemaphoreGive(cameraMutex);
 
     if (!got) {
@@ -818,7 +832,7 @@ static void applyRawSensorSettings(sensor_t* s, const String& reqLine) {
 }
 
 static void handleCapture(WiFiClient& client, const String& reqLine) {
-  sensor_t* s = TimerCAM.Camera.sensor;
+  sensor_t* s = esp_camera_sensor_get();
   String resName = parseParam(reqLine, "res");
   framesize_t fs = resName.length() > 0 ? resolveName(resName) : FRAMESIZE_UXGA;
 
@@ -1006,9 +1020,12 @@ void loop() {
           Log.println("mDNS start failed");
     } else if (path == "/api/poweroff")
       handlePowerOff(client, reqLine);
-    else if (path == "/api/led/blink")
-      handleLedBlink(client, body);
-    else
+    else if (path == "/api/led/blink") {
+      if (!boardFeatures().led)
+        send404(client);
+      else
+        handleLedBlink(client, body);
+    } else
       send405(client);
     return;
   }
@@ -1016,9 +1033,12 @@ void loop() {
   // --- PATCH routes ---
   if (isPatch) {
     String body = readBody(client, bodyLen);
-    if (path == "/api/led")
-      handleLedPatch(client, body);
-    else
+    if (path == "/api/led") {
+      if (!boardFeatures().led)
+        send404(client);
+      else
+        handleLedPatch(client, body);
+    } else
       send405(client);
     return;
   }
@@ -1045,7 +1065,10 @@ void loop() {
     } else if (path == "/api/status") {
       handleStatus(client);
     } else if (path == "/api/led") {
-      handleLedGet(client);
+      if (!boardFeatures().led)
+        send404(client);
+      else
+        handleLedGet(client);
     } else if (path == "/api/streamfps") {
       handleStreamFps(client);
     } else if (path == "/api/cam/stream.mjpeg") {

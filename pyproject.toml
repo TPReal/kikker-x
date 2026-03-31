@@ -1,7 +1,7 @@
 [project]
 name = "kikker-x"
-version = "1.0.0"
-description = "Wi-Fi camera server firmware and dev tools for the M5Stack Timer Camera X"
+version = "1.1.0"
+description = "Wi-Fi camera server firmware and dev tools for ESP32 camera boards"
 license = { text = "MIT" }
 authors = [{ name = "TPReal" }]
 requires-python = ">=3.11"

@@ -2,7 +2,20 @@ function loadStatus() {
   fetch("/api/status")
     .then(r => r.json())
     .then(d => {
-      document.getElementById("status-bat").textContent = `${d.battery.voltage} mV (${d.battery.level}%)`;
+      const hasBattery = d.features?.battery ?? true;
+      document.getElementById("battery-row").style.display = hasBattery ? "contents" : "none";
+      if (hasBattery)
+        document.getElementById("status-bat").textContent = `${d.battery.voltage} mV (${d.battery.level}%)`;
+
+      const hasLed = d.features?.led ?? true;
+      document.getElementById("led-section").style.display = hasLed ? "" : "none";
+      if (hasLed)
+        fetch("/api/led")
+          .then(r => r.json())
+          .then(ld => setLedBtn(ld.state))
+          .catch(() => {});
+
+      document.getElementById("status-board").textContent = d.features?.board ?? "—";
       const idEl = document.getElementById("status-id");
       idEl.textContent = d.id;
       idEl.style.fontFamily = "monospace";
@@ -14,20 +27,13 @@ function loadStatus() {
       document.getElementById("status-ver").textContent = d.version;
     })
     .catch(() => {
-      ["status-bat", "status-id", "status-wifi", "status-ver"].forEach(id => {
+      ["status-bat", "status-board", "status-id", "status-wifi", "status-ver"].forEach(id => {
         document.getElementById(id).textContent = "N/A";
       });
     });
 }
 
 loadStatus();
-
-fetch("/api/led")
-  .then(r => r.json())
-  .then(d => {
-    setLedBtn(d.state);
-  })
-  .catch(() => {});
 
 function setLedBtn(on) {
   document.getElementById("led-btn").classList.toggle("on", on);

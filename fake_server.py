@@ -6,7 +6,12 @@ Scans src/static/*.h on every request — no hardcoded catalog.
 Static files are re-read each time so edits take effect on browser reload.
 
 Usage:
-    ./fake_server.py [port]   (default port: 8080)
+    ./fake_server.py [--port PORT] [--board BOARD]
+
+    --port PORT     Port to listen on (default: 8080)
+    --board BOARD   Simulate a specific board's feature set:
+                      timercam  — LED + battery enabled (default)
+                      wrovercam — LED + battery disabled
 
 Requires Pillow for animated camera images:
     pip install Pillow
@@ -15,6 +20,7 @@ Without Pillow, camera endpoints return a static 1×1 placeholder JPEG.
 
 from __future__ import annotations
 
+import argparse
 import base64
 import hashlib
 import io
@@ -40,6 +46,18 @@ except ImportError as e:
     sys.exit("Package not installed. Run:  uv run fake_server.py")
 
 mimetypes.add_type("text/javascript", ".mjs")
+
+# ---------------------------------------------------------------------------
+# Board feature table
+# ---------------------------------------------------------------------------
+
+_BOARD_FEATURES: dict[str, dict[str, Any]] = {
+    "timercam": {"board": "M5Stack Timer Camera X", "led": True, "battery": True},
+    "wrovercam": {"board": "ESP32-WROVER-CAM", "led": True, "battery": False},
+}
+
+# Populated at startup from --board argument; defaults to all features enabled.
+_features: dict[str, Any] = {"board": "KikkerX (dev server)", "led": True, "battery": True}
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(SCRIPT_DIR, "src", "static")
@@ -781,18 +799,22 @@ class KikkerXHandler(BaseHTTPRequestHandler):
             )
 
         elif path == "/api/status":
-            voltage = 3850 + random.randint(-15, 15)
             rssi = -58 + random.randint(-3, 3)
-            self._send_json(
-                {
-                    "battery": {"voltage": voltage, "level": 75},
-                    "id": "c0ffeefacade",
-                    "wifi": {"ssid": "FakeAP", "ip": "192.168.1.99", "rssi": rssi},
-                    "version": "1.0.0",
-                }
-            )
+            data: dict[str, Any] = {
+                "id": "c0ffeefacade",
+                "wifi": {"mode": "station", "ssid": "FakeAP", "ip": "192.168.1.99", "rssi": rssi},
+                "version": "1.0.0",
+                "features": _features,
+            }
+            if _features["battery"]:
+                voltage = 3850 + random.randint(-15, 15)
+                data["battery"] = {"voltage": voltage, "level": 75}
+            self._send_json(data)
 
         elif path == "/api/led":
+            if not _features["led"]:
+                self.send_error(404)
+                return
             self._send_json({"state": _led_state})
 
         elif path == "/api/streamfps":
@@ -822,6 +844,9 @@ class KikkerXHandler(BaseHTTPRequestHandler):
         global _led_state
         parsed = urlparse(self.path)
         if parsed.path == "/api/led":
+            if not _features["led"]:
+                self.send_error(404)
+                return
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
             if "state" in body:
@@ -854,6 +879,9 @@ class KikkerXHandler(BaseHTTPRequestHandler):
         elif path == "/api/wifi/reconnect":
             self._send_text("Reconnecting to WiFi.")
         elif path == "/api/led/blink":
+            if not _features["led"]:
+                self.send_error(404)
+                return
             length = int(self.headers.get("Content-Length", 0))
             self.rfile.read(length)  # consume body, blink not simulated
             self._send_text("OK")
@@ -910,9 +938,23 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
-    httpd = ThreadedHTTPServer(("", port), KikkerXHandler)
-    print(f"KikkerX dev server → http://localhost:{port}/")
+    parser = argparse.ArgumentParser(description="KikkerX development HTTP server")
+    parser.add_argument("--port", type=int, default=8080, help="Port to listen on (default: 8080)")
+    parser.add_argument(
+        "--board",
+        choices=list(_BOARD_FEATURES.keys()),
+        help="Simulate a specific board's feature set (default: all features enabled)",
+    )
+    args = parser.parse_args()
+
+    if args.board:
+        _features.update(_BOARD_FEATURES[args.board])
+        print(f"Board: {args.board} — features: {_features}")
+    else:
+        print(f"Board: (default) — features: {_features}")
+
+    httpd = ThreadedHTTPServer(("", args.port), KikkerXHandler)
+    print(f"KikkerX dev server → http://localhost:{args.port}/")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

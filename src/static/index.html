@@ -24,20 +24,25 @@
         <button type="button" id="refresh-btn" class="refresh-btn" title="Refresh">↻</button>
       </div>
       <div class="status-info">
-        <span class="sl">Battery:</span><span id="status-bat">…</span>
+        <span class="sl">Board:</span><span id="status-board">…</span>
         <span class="sl">Device ID:</span><span id="status-id">…</span>
-        <span class="sl">WiFi:</span><span id="status-wifi">…</span>
         <span class="sl">Version:</span><span id="status-ver">…</span>
+        <div id="battery-row" style="display:contents">
+          <span class="sl">Battery:</span><span id="status-bat">…</span>
+        </div>
+        <span class="sl">WiFi:</span><span id="status-wifi">…</span>
       </div>
 
       <a href="/logs" style="display: block; color: #555; font-size: 12px; margin: -16px 0 24px">Logs</a>
 
-      <h2>LED</h2>
-      <div class="led-row">
-        <button type="button" id="led-btn" class="led-btn" title="Toggle the LED state on the device">
-          <div style="margin-bottom: 3px">●</div>
-        </button>
-        <button type="button" id="blink-btn" class="blink-btn" title="Blink the LED on the device">★ Blink</button>
+      <div id="led-section">
+        <h2>LED</h2>
+        <div class="led-row">
+          <button type="button" id="led-btn" class="led-btn" title="Toggle the LED state on the device">
+            <div style="margin-bottom: 3px">●</div>
+          </button>
+          <button type="button" id="blink-btn" class="blink-btn" title="Blink the LED on the device">★ Blink</button>
+        </div>
       </div>
 
       <h2>Power</h2>
