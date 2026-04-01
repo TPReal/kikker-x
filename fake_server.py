@@ -800,16 +800,31 @@ class KikkerXHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/status":
             rssi = -58 + random.randint(-3, 3)
-            data: dict[str, Any] = {
-                "id": "c0ffeefacade",
-                "wifi": {"mode": "station", "ssid": "FakeAP", "ip": "192.168.1.99", "rssi": rssi},
-                "version": "1.0.0",
-                "features": _features,
-            }
-            if _features["battery"]:
-                voltage = 3850 + random.randint(-15, 15)
-                data["battery"] = {"voltage": voltage, "level": 75}
-            self._send_json(data)
+            ssid = "FakeAP"
+            voltage = (3850 + random.randint(-15, 15)) if _features["battery"] else 0
+            level = 75
+            mode = qp("mode", "full")
+            if mode == "short_text":
+                parts = [f"WiFi: {ssid} ({rssi}dB)"]
+                if _features["battery"]:
+                    parts.append(f"Battery: {voltage}mV ({level}%)")
+                self._send_text(", ".join(parts))
+            elif mode == "short":
+                data: dict[str, Any] = {"wifi": {"ssid": ssid, "rssi": rssi}}
+                if _features["battery"]:
+                    data["battery"] = {"voltage": voltage, "level": level}
+                self._send_json(data)
+            else:
+                data = {
+                    "id": "c0ffeefacade",
+                    "wifi": {"mode": "station", "ssid": ssid, "ip": "192.168.1.99", "rssi": rssi},
+                    "camera": "kikker-x",
+                    "version": "1.0.0",
+                    "features": _features,
+                }
+                if _features["battery"]:
+                    data["battery"] = {"voltage": voltage, "level": level}
+                self._send_json(data)
 
         elif path == "/api/led":
             if not _features["led"]:

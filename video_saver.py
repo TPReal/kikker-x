@@ -244,7 +244,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         metavar="URL",
         help="If given, periodically fetch this URL and append the response to a log file alongside each recording."
-        " A path starting with '/' uses the host from the main URL.",
+        " A path starting with '/' uses the host from the main URL."
+        " Example: /api/status?mode=short_text",
     )
     p.add_argument(
         "--status-interval",

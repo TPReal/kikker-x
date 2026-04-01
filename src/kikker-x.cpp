@@ -508,15 +508,67 @@ static void handleLedBlink(WiFiClient& client, const String& body) {
 // API: status
 // ---------------------------------------------------------------------------
 
-static void handleStatus(WiFiClient& client) {
+static void handleStatus(WiFiClient& client, const String& reqLine) {
   BoardFeatures feat = boardFeatures();
   BatteryData bat = feat.battery ? boardBattery() : BatteryData{};
+  bool isAP = wifiIsAP();
+  String ssid = isAP ? WiFi.softAPSSID() : WiFi.SSID();
+  int32_t rssi = isAP ? 0 : WiFi.RSSI();
+
+  String mode = parseParam(reqLine, "mode");
+
+  // --- short_text ---
+  if (mode == "short_text") {
+    char buf[128];
+    if (!isAP && feat.battery)
+      snprintf(buf, sizeof(buf), "WiFi: %s (%ddB), Battery: %dmV (%d%%)", ssid.c_str(), (int)rssi, bat.voltage,
+          bat.level);
+    else if (!isAP)
+      snprintf(buf, sizeof(buf), "WiFi: %s (%ddB)", ssid.c_str(), (int)rssi);
+    else if (feat.battery)
+      snprintf(buf, sizeof(buf), "WiFi: %s, Battery: %dmV (%d%%)", ssid.c_str(), bat.voltage, bat.level);
+    else
+      snprintf(buf, sizeof(buf), "WiFi: %s", ssid.c_str());
+    client.print(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+    client.print(buf);
+    client.stop();
+    Log.println("→ 200 status short_text");
+    return;
+  }
+
+  // --- short ---
+  if (mode == "short") {
+    cJSON* root = cJSON_CreateObject();
+    cJSON* wifi = cJSON_CreateObject();
+    cJSON_AddStringToObject(wifi, "ssid", ssid.c_str());
+    if (!isAP)
+      cJSON_AddNumberToObject(wifi, "rssi", rssi);
+    cJSON_AddItemToObject(root, "wifi", wifi);
+    if (feat.battery) {
+      cJSON* battery = cJSON_CreateObject();
+      cJSON_AddNumberToObject(battery, "voltage", bat.voltage);
+      cJSON_AddNumberToObject(battery, "level", bat.level);
+      cJSON_AddItemToObject(root, "battery", battery);
+    }
+    char* json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    client.print(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+    if (json) {
+      client.print(json);
+      free(json);
+    }
+    client.stop();
+    Log.println("→ 200 status short");
+    return;
+  }
+
+  // --- full (default) ---
   uint64_t mac = ESP.getEfuseMac();
   char macStr[13];
   snprintf(macStr, sizeof(macStr), "%02x%02x%02x%02x%02x%02x", (int)((mac >> 40) & 0xff), (int)((mac >> 32) & 0xff),
       (int)((mac >> 24) & 0xff), (int)((mac >> 16) & 0xff), (int)((mac >> 8) & 0xff), (int)(mac & 0xff));
-
-  bool isAP = wifiIsAP();
   cJSON* root = cJSON_CreateObject();
   if (feat.battery) {
     cJSON* battery = cJSON_CreateObject();
@@ -528,25 +580,23 @@ static void handleStatus(WiFiClient& client) {
   cJSON* wifi = cJSON_CreateObject();
   cJSON_AddStringToObject(wifi, "mode", isAP ? "ap" : "station");
   if (isAP) {
-    cJSON_AddStringToObject(wifi, "ssid", WiFi.softAPSSID().c_str());
+    cJSON_AddStringToObject(wifi, "ssid", ssid.c_str());
     cJSON_AddStringToObject(wifi, "ip", WiFi.softAPIP().toString().c_str());
   } else {
-    int32_t rssi = WiFi.RSSI();
-    cJSON_AddStringToObject(wifi, "ssid", WiFi.SSID().c_str());
+    cJSON_AddStringToObject(wifi, "ssid", ssid.c_str());
     cJSON_AddStringToObject(wifi, "ip", WiFi.localIP().toString().c_str());
     cJSON_AddNumberToObject(wifi, "rssi", rssi);
   }
   cJSON_AddItemToObject(root, "wifi", wifi);
+  cJSON_AddStringToObject(root, "camera", "kikker-x");
   cJSON_AddStringToObject(root, "version", FIRMWARE_VERSION);
   cJSON* features = cJSON_CreateObject();
   cJSON_AddStringToObject(features, "board", feat.name);
   cJSON_AddBoolToObject(features, "led", feat.led);
   cJSON_AddBoolToObject(features, "battery", feat.battery);
   cJSON_AddItemToObject(root, "features", features);
-
   char* json = cJSON_PrintUnformatted(root);
   cJSON_Delete(root);
-
   client.print(
       "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
   if (json) {
@@ -1063,7 +1113,7 @@ void loop() {
     if (path == "/api/logs") {
       handleLogs(client);
     } else if (path == "/api/status") {
-      handleStatus(client);
+      handleStatus(client, reqLine);
     } else if (path == "/api/led") {
       if (!boardFeatures().led)
         send404(client);

@@ -270,13 +270,31 @@ curl "http://kikker-x.local/api/status"
 #      "id": "c0ffeefacade",
 #      "wifi": { "mode": "station", "ssid": "HomeNet", "ip": "192.168.1.50", "rssi": -52 },
 #      "version": "1.1.0",
+#      "camera": "kikker-x",
 #      "features": { "board": "M5Stack Timer Camera X", "led": true, "battery": true } }
 ```
 
 `battery` is omitted for boards without battery monitoring. `features.led` and `features.battery` indicate which
-optional hardware is present.
+optional hardware is present. `camera` is always `"kikker-x"` and can be used to identify the firmware type.
 
 In AP mode `wifi.mode` is `"ap"`, `ssid` and `ip` reflect the soft AP, and `rssi` is absent.
+
+#### Short modes
+
+Pass `?mode=` to get a lighter response:
+
+```sh
+curl "http://kikker-x.local/api/status?mode=short"
+# → { "wifi": { "ssid": "HomeNet", "rssi": -52 }, "battery": { "voltage": 3850, "level": 75 } }
+```
+
+```sh
+curl "http://kikker-x.local/api/status?mode=short_text"
+# → WiFi: HomeNet (-52dB), Battery: 3850mV (75%)
+```
+
+`short` returns a JSON subset. `short_text` returns a plain-text one-liner — useful for logging alongside recordings
+(see `--status-url`). Both omit `rssi` in AP mode and omit `battery` on boards without battery monitoring.
 
 ### Camera
 
@@ -412,6 +430,16 @@ sleep duration in seconds (`--timelapse-interval` minus `--timelapse-sleep-margi
 This example sleeps for 270 s (5 min − 30 s), leaving 30 s for boot and WiFi reconnect. The script's retry logic handles
 the device being temporarily unreachable while it sleeps; `--timelapse-interval` acts as a minimum gap between frames —
 if the device comes up early the script waits out the remainder.
+
+**Stream with periodic status logging:**
+
+```sh
+./video_saver.py \
+    "http://kikker-x.local/api/cam/stream.mjpeg?res=VGA" \
+    --output-dir ./recordings \
+    --status-url "/api/status?mode=short_text" \
+    --status-interval 5m
+```
 
 #### Flags
 
