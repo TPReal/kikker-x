@@ -1,34 +1,38 @@
+import { getPageOptions, patchPageOptions } from "/page_options.mjs";
+import { docElem } from "/util.mjs";
+
 function loadStatus() {
   fetch("/api/status")
     .then(r => r.json())
     .then(d => {
       const hasBattery = d.features?.battery ?? true;
-      document.getElementById("battery-row").style.display = hasBattery ? "contents" : "none";
-      if (hasBattery)
-        document.getElementById("status-bat").textContent = `${d.battery.voltage} mV (${d.battery.level}%)`;
+      docElem.batteryRow.style.display = hasBattery ? "contents" : "none";
+      if (hasBattery) {
+        docElem.statusBat.textContent = `${d.battery.voltage} mV (${d.battery.level}%)`;
+      }
 
       const hasLed = d.features?.led ?? true;
-      document.getElementById("led-section").style.display = hasLed ? "" : "none";
-      if (hasLed)
+      docElem.ledSection.style.display = hasLed ? "" : "none";
+      if (hasLed) {
         fetch("/api/led")
           .then(r => r.json())
           .then(ld => setLedBtn(ld.state))
           .catch(() => {});
+      }
 
-      document.getElementById("status-board").textContent = d.features?.board ?? "—";
-      const idEl = document.getElementById("status-id");
-      idEl.textContent = d.id;
-      idEl.style.fontFamily = "monospace";
+      docElem.statusBoard.textContent = d.features?.board ?? "—";
+      docElem.statusId.textContent = d.id;
+      docElem.statusId.style.fontFamily = "monospace";
       const wifiText =
         d.wifi.mode === "ap"
           ? `${d.wifi.ssid} · ${d.wifi.ip} · (AP mode)`
           : `${d.wifi.ssid} · ${d.wifi.ip} · ${d.wifi.rssi} dBm`;
-      document.getElementById("status-wifi").textContent = wifiText;
-      document.getElementById("status-ver").textContent = d.version;
+      docElem.statusWifi.textContent = wifiText;
+      docElem.statusVer.textContent = d.version;
     })
     .catch(() => {
-      ["status-bat", "status-board", "status-id", "status-wifi", "status-ver"].forEach(id => {
-        document.getElementById(id).textContent = "N/A";
+      ["statusBat", "statusBoard", "statusId", "statusWifi", "statusVer"].forEach(id => {
+        docElem[id].textContent = "N/A";
       });
     });
 }
@@ -36,12 +40,11 @@ function loadStatus() {
 loadStatus();
 
 function setLedBtn(on) {
-  document.getElementById("led-btn").classList.toggle("on", on);
+  docElem.ledBtn.classList.toggle("on", on);
 }
 
 function toggleLed() {
-  const btn = document.getElementById("led-btn");
-  const next = !btn.classList.contains("on");
+  const next = !docElem.ledBtn.classList.contains("on");
   fetch("/api/led", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -70,87 +73,80 @@ function doBlink() {
 }
 
 function doReconnect() {
-  const msg = document.getElementById("msg");
-  msg.textContent = "Reconnecting…";
+  docElem.msg.textContent = "Reconnecting…";
   fetch("/api/wifi/reconnect", { method: "POST" })
     .then(r => r.text())
     .then(t => {
-      msg.textContent = `${t} Reloading…`;
+      docElem.msg.textContent = `${t} Reloading…`;
       setTimeout(() => location.reload(), 6000);
     })
     .catch(() => {
-      msg.textContent = "Reconnecting… Reloading…";
+      docElem.msg.textContent = "Reconnecting… Reloading…";
       setTimeout(() => location.reload(), 6000);
     });
 }
 
 function doRestart() {
-  const msg = document.getElementById("msg");
-  msg.textContent = "Sending…";
+  docElem.msg.textContent = "Sending…";
   fetch("/api/restart", { method: "POST" })
     .then(r => r.text())
     .then(t => {
-      msg.textContent = t;
+      docElem.msg.textContent = t;
       setTimeout(() => location.reload(), 3000);
     })
     .catch(() => {
-      msg.textContent = "Device is restarting.";
+      docElem.msg.textContent = "Device is restarting.";
       setTimeout(() => location.reload(), 3000);
     });
 }
 
-const durVal = document.getElementById("dur-val");
-const durUnit = document.getElementById("dur-unit");
-
-import { getPageOptions, patchPageOptions } from "/page_options.mjs";
-
 function applyDurUnit(unit) {
-  durVal.disabled = unit === "permanent";
-  durVal.max = unit === "h" ? "4" : "255";
+  docElem.durVal.disabled = unit === "permanent";
+  docElem.durVal.max = unit === "h" ? "4" : "255";
 }
 
 function clampDurVal() {
-  const min = Number(durVal.min);
-  const max = Number(durVal.max);
-  let v = Number(durVal.value);
+  const min = Number(docElem.durVal.min);
+  const max = Number(docElem.durVal.max);
+  let v = Number(docElem.durVal.value);
   if (Number.isNaN(v)) {
     v = min;
   }
-  durVal.value = Math.max(min, Math.min(max, v));
+  docElem.durVal.value = Math.max(min, Math.min(max, v));
 }
 
 function restoreDurState() {
   const opts = getPageOptions();
   if (opts.durVal != null) {
-    durVal.value = opts.durVal;
+    docElem.durVal.value = opts.durVal;
   }
   if (opts.durUnit != null) {
-    durUnit.value = opts.durUnit;
+    docElem.durUnit.value = opts.durUnit;
   }
-  applyDurUnit(durUnit.value);
+  applyDurUnit(docElem.durUnit.value);
 }
 
 restoreDurState();
 
-durVal.addEventListener("change", () => {
+docElem.durVal.addEventListener("change", () => {
   clampDurVal();
-  patchPageOptions({ durVal: durVal.value });
+  patchPageOptions({ durVal: docElem.durVal.value });
 });
-durUnit.addEventListener("change", () => {
-  applyDurUnit(durUnit.value);
+docElem.durUnit.addEventListener("change", () => {
+  applyDurUnit(docElem.durUnit.value);
   clampDurVal();
-  patchPageOptions({ durUnit: durUnit.value });
+  patchPageOptions({ durUnit: docElem.durUnit.value });
 });
 
 function doPowerOff() {
-  const unit = durUnit.value;
+  const unit = docElem.durUnit.value;
   let seconds;
   if (unit === "permanent") {
     seconds = 0;
   } else if (unit === "h") {
-    seconds = Math.round(parseFloat(durVal.value) * 3600);
+    seconds = Math.round(parseFloat(docElem.durVal.value) * 3600);
   } else {
-    seconds = Math.round(parseFloat(durVal.value) * 60);
+    seconds = Math.round(parseFloat(docElem.durVal.value) * 60);
   }
   const MAX_SLEEP_S = 255 * 60; // BM8563 timer limit: 255 minutes
   if (unit !== "permanent" && seconds <= 0) {
@@ -161,8 +157,7 @@ function doPowerOff() {
     alert("Maximum sleep duration is 255 minutes (4 h 15 min).");
     return;
   }
-  const msg = document.getElementById("msg");
-  msg.textContent = "Sending…";
+  docElem.msg.textContent = "Sending…";
   fetch(`/api/poweroff?duration=${seconds}`, { method: "POST" })
     .then(r => r.text())
     .then(t => {
@@ -170,16 +165,16 @@ function doPowerOff() {
         const wakeAt = new Date(Date.now() + seconds * 1000);
         t += ` (Scheduled wake-up: ${wakeAt.toLocaleTimeString()})`;
       }
-      msg.textContent = t;
+      docElem.msg.textContent = t;
     })
     .catch(() => {
-      msg.textContent = "Device is shutting down.";
+      docElem.msg.textContent = "Device is shutting down.";
     });
 }
 
-document.getElementById("refresh-btn").addEventListener("click", loadStatus);
-document.getElementById("led-btn").addEventListener("click", toggleLed);
-document.getElementById("blink-btn").addEventListener("click", doBlink);
-document.getElementById("reconnect-btn").addEventListener("click", doReconnect);
-document.getElementById("restart-btn").addEventListener("click", doRestart);
-document.getElementById("poweroff-btn").addEventListener("click", doPowerOff);
+docElem.refreshBtn.addEventListener("click", loadStatus);
+docElem.ledBtn.addEventListener("click", toggleLed);
+docElem.blinkBtn.addEventListener("click", doBlink);
+docElem.reconnectBtn.addEventListener("click", doReconnect);
+docElem.restartBtn.addEventListener("click", doRestart);
+docElem.poweroffBtn.addEventListener("click", doPowerOff);

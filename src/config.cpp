@@ -47,18 +47,6 @@ Config getConfig() {
   if (cJSON_IsString(mdns))
     s_config.mdns = mdns->valuestring;
 
-  cJSON* auth = cJSON_GetObjectItemCaseSensitive(s_root, "auth");
-  if (cJSON_IsObject(auth)) {
-    cJSON* u = cJSON_GetObjectItemCaseSensitive(auth, "username");
-    cJSON* p = cJSON_GetObjectItemCaseSensitive(auth, "pass_sha256");
-    if (cJSON_IsString(u))
-      s_config.auth.username = u->valuestring;
-    if (cJSON_IsString(p))
-      s_config.auth.pass_sha256 = p->valuestring;
-    if (s_config.auth.username && !s_config.auth.pass_sha256)
-      Log.println("config: ERROR: auth.username set but auth.pass_sha256 missing — all requests will be denied");
-  }
-
   cJSON* networks = cJSON_GetObjectItemCaseSensitive(s_root, "known_networks");
   if (cJSON_IsArray(networks)) {
     cJSON* item;
@@ -106,7 +94,24 @@ Config getConfig() {
     }
   }
 
-  Log.printf("config: mdns=%s auth=%s\n", s_config.mdns ? s_config.mdns : "(none)",
-      s_config.auth.username ? s_config.auth.username : "(none)");
+  s_config.allow_cors = true;
+  cJSON* allowCors = cJSON_GetObjectItemCaseSensitive(s_root, "allow_cors");
+  if (cJSON_IsBool(allowCors))
+    s_config.allow_cors = cJSON_IsTrue(allowCors);
+
+  cJSON* auth = cJSON_GetObjectItemCaseSensitive(s_root, "auth");
+  if (cJSON_IsObject(auth)) {
+    cJSON* u = cJSON_GetObjectItemCaseSensitive(auth, "username");
+    cJSON* p = cJSON_GetObjectItemCaseSensitive(auth, "pass_sha256");
+    if (cJSON_IsString(u))
+      s_config.auth.username = u->valuestring;
+    if (cJSON_IsString(p))
+      s_config.auth.pass_sha256 = p->valuestring;
+    if (s_config.auth.username && !s_config.auth.pass_sha256)
+      Log.println("config: ERROR: auth.username set but auth.pass_sha256 missing — all requests will be denied");
+  }
+
+  Log.printf("config: mdns=%s cors=%s auth=%s\n", s_config.mdns ? s_config.mdns : "(none)",
+      s_config.allow_cors ? "on" : "off", s_config.auth.username ? s_config.auth.username : "(none)");
   return s_config;
 }

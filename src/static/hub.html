@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KikkerX — Cameras Hub</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#103a1c" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/hub.css" />
+  </head>
+  <body>
+    <!-- Gradient for the spinner arc — referenced via url(#hubSg) from hub.mjs. -->
+    <svg style="position:absolute;width:0;height:0" aria-hidden="true">
+      <defs>
+        <linearGradient id="hubSg" x1="0.5" y1="0" x2="0" y2="0.5">
+          <stop offset="0%" stop-color="#5c5" stop-opacity="0" />
+          <stop offset="100%" stop-color="#5c5" stop-opacity="1" />
+        </linearGradient>
+      </defs>
+    </svg>
+
+    <div class="bar">
+      <span class="nav-title"><a href="/" id="homeLink" hidden>⇦</a> Cameras Hub</span>
+      <div class="bar-center">
+        <label for="intervalSel" style="font-size: 13px; color: #aaa">Refresh:</label>
+        <select id="intervalSel" style="font-size: 13px; padding: 3px 6px">
+          <option value="0">Off</option>
+          <option value="5">5 s</option>
+          <option value="10">10 s</option>
+          <option value="30">30 s</option>
+          <option value="120">2 min</option>
+          <option value="600">10 min</option>
+          <option value="1800">30 min</option>
+          <option value="3600">1 h</option>
+        </select>
+        <button type="button" id="refreshNowBtn" title="Refresh all">↻</button>
+      </div>
+      <div class="bar-center">
+        <div class="manage-wrap">
+          <button type="button" id="manageBtn" title="Menu">⋯</button>
+          <div id="manageMenu" hidden>
+            <button type="button" id="loadBtn" hidden>Load from server</button>
+            <button type="button" id="saveBtn" hidden>Save to server</button>
+            <button type="button" id="resetDefaultsBtn" hidden>Reset to defaults</button>
+            <button type="button" id="removeAllBtn">Remove all</button>
+            <hr class="menu-sep" />
+            <button type="button" id="importBtn">Import</button>
+            <button type="button" id="exportBtn">Export</button>
+            <hr class="menu-sep" />
+            <label class="menu-chk-label"><input type="checkbox" id="allowChangingChk" /> Allow changes</label>
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept=".json" hidden />
+        <button type="button" id="authsBtn" title="Saved auths">Auths</button>
+        <button type="button" id="addBtn" hidden>+ Add camera</button>
+      </div>
+    </div>
+
+    <div id="camGrid"></div>
+
+    <dialog id="addDialog" style="min-width: 450px">
+      <form id="addForm">
+        <h3>Add camera</h3>
+        <div class="form-row" id="typeRow">
+          <div class="type-row">
+            <label><input type="radio" name="type" value="kikker-x" checked /> KikkerX</label>
+            <label><input type="radio" name="type" value="other" /> Other</label>
+          </div>
+        </div>
+        <div class="form-row">
+          <label id="urlLabel" for="addUrl">Base URL:</label>
+          <input type="url" id="addUrl" required />
+        </div>
+        <div class="form-row">
+          <label for="addName">Name (optional):</label>
+          <input type="text" id="addName" />
+        </div>
+        <div class="form-row" id="captureParamsRow" hidden>
+          <label for="addCaptureParams">Capture params:</label>
+          <input type="text" id="addCaptureParams" placeholder="e.g. res=SVGA (default: VGA)" />
+        </div>
+        <div class="form-row">
+          <label for="addAuth">Auth:</label>
+          <select id="addAuth">
+            <option value="">None</option>
+          </select>
+        </div>
+        <p id="authSelfNote" hidden>Auth is not used for this camera locally, but is included in exports.</p>
+        <div id="newAuthFields" hidden>
+          <div class="form-row">
+            <label for="addAuthName">Auth name (optional):</label>
+            <input type="text" id="addAuthName" placeholder="e.g. Home network" />
+          </div>
+          <div class="form-row">
+            <label for="addUsername">Username:</label>
+            <input type="text" id="addUsername" autocomplete="username" />
+          </div>
+          <div class="form-row">
+            <label for="addPassword">Password:</label>
+            <input type="password" id="addPassword" autocomplete="current-password" />
+          </div>
+        </div>
+        <p id="viewOnlyNote" hidden style="font-size: 12px; color: #666; margin: 12px 0 0">
+          To edit, enable <strong>Allow changes</strong> in the <strong>⋯</strong> menu in the top right.
+        </p>
+        <div class="form-actions">
+          <button type="submit">Add</button>
+          <button type="button" id="dupBtn" hidden
+            title="Pre-fill a new Add form with this camera's settings">Duplicate</button>
+          <button type="button" id="copyBtn" hidden title="Copy camera config to clipboard">Copy</button>
+          <button type="button" id="cancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="exportDialog" style="min-width: 480px">
+      <h3>Export cameras</h3>
+      <textarea id="exportText" class="json-textarea" readonly></textarea>
+      <div class="form-actions">
+        <button type="button" id="exportSaveBtn">Save to file</button>
+        <button type="button" id="exportCopyBtn">Copy</button>
+        <button type="button" id="exportCloseBtn">Close</button>
+      </div>
+    </dialog>
+
+    <dialog id="importDialog" style="min-width: 480px">
+      <h3>Import cameras</h3>
+      <textarea id="importText" class="json-textarea" placeholder="Paste camera JSON here…"></textarea>
+      <p id="importError" style="color: #f88; font-size: 12px; margin: 0 0 8px; display: none"></p>
+      <div class="form-actions" style="justify-content: space-between">
+        <button type="button" id="importFileBtn">Load from file</button>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#aaa;cursor:pointer">
+            <input type="checkbox" id="importReplaceChk" /> Replace all
+          </label>
+          <button type="button" id="importDoBtn">Import</button>
+          <button type="button" id="importCancelBtn">Cancel</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="authsDialog" style="min-width: 360px">
+      <h3>Saved Auths</h3>
+      <div id="authsList"></div>
+      <div class="form-actions" style="justify-content: space-between">
+        <div><button type="button" id="authsAddBtn" hidden>+ New auth</button></div>
+        <button type="button" id="authsCloseBtn">Close</button>
+      </div>
+    </dialog>
+
+    <dialog id="editAuthDialog">
+      <form id="editAuthForm">
+        <h3>Edit Auth</h3>
+        <div class="form-row">
+          <label for="eaName">Auth name (optional):</label>
+          <input type="text" id="eaName" placeholder="e.g. Home network" />
+        </div>
+        <div class="form-row">
+          <label for="eaUsername">Username:</label>
+          <input type="text" id="eaUsername" required autocomplete="username" />
+        </div>
+        <div class="form-row">
+          <label for="eaPassword">Password:</label>
+          <input type="password" id="eaPassword" autocomplete="current-password" />
+        </div>
+        <div class="form-actions">
+          <button type="submit">Save</button>
+          <button type="button" id="eaCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="credsDialog">
+      <form id="credsForm">
+        <h3 id="credsTitle">Credentials</h3>
+        <div class="form-row">
+          <label for="credsUsername">Username:</label>
+          <input type="text" id="credsUsername" required autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <label for="credsPassword">Password:</label>
+          <input type="password" id="credsPassword" autocomplete="off" />
+        </div>
+        <p id="credsError"
+          style="color: #f88; font-size: 12px; margin: 0 0 12px; display: none; max-width: 240px; overflow-wrap: break-word">
+        </p>
+        <div class="form-actions">
+          <button type="submit" id="credsSubmitBtn">OK</button>
+          <button type="button" id="credsCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" popover="manual"></div>
+
+    <script type="module" src="/hub.mjs"></script>
+  </body>
+</html>

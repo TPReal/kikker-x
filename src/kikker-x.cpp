@@ -200,6 +200,7 @@ static void applyQuality(int q) {
 
 void setup() {
   Serial.begin(115200);
+  delay(500);  // Wait for the serial monitor to attach before logging.
   logInit();
   getConfig();  // parse and cache early so log output appears at startup
   boardBegin();
@@ -239,7 +240,7 @@ void setup() {
 
 // Reads headers, returning Content-Length (0 if absent).
 // Captures the Authorization header value into authHeader.
-static int readHeaders(WiFiClient& client, String& authHeader) {
+static int readHeaders(WiFiClient& client, String& authHeader, String& originHeader) {
   int contentLength = 0;
   while (client.connected()) {
     String line = client.readStringUntil('\n');
@@ -257,6 +258,9 @@ static int readHeaders(WiFiClient& client, String& authHeader) {
     } else if (lower.startsWith("authorization:")) {
       authHeader = line.substring(14);
       authHeader.trim();
+    } else if (lower.startsWith("origin:")) {
+      originHeader = line.substring(7);
+      originHeader.trim();
     }
   }
   return contentLength;
@@ -276,20 +280,36 @@ static String readBody(WiFiClient& client, int len) {
   return body;
 }
 
-static void send404(WiFiClient& client) {
-  client.print("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+static void printCors(WiFiClient& client, const String& origin) {
+  if (origin.length() > 0 && getConfig().allow_cors) {
+    client.print("Access-Control-Allow-Origin: ");
+    client.print(origin);
+    client.print("\r\nVary: Origin\r\n");
+  }
+}
+
+static void endHeaders(WiFiClient& client, const String& origin) {
+  printCors(client, origin);
+  client.print("Connection: close\r\n\r\n");
+}
+
+static void send404(WiFiClient& client, const String& origin) {
+  client.print("HTTP/1.1 404 Not Found\r\n");
+  endHeaders(client, origin);
   client.stop();
   Log.println("→ 404");
 }
 
-static void send405(WiFiClient& client) {
-  client.print("HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n");
+static void send405(WiFiClient& client, const String& origin) {
+  client.print("HTTP/1.1 405 Method Not Allowed\r\n");
+  endHeaders(client, origin);
   client.stop();
   Log.println("→ 405");
 }
 
-static void send503(WiFiClient& client, const char* msg) {
-  client.print("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+static void send503(WiFiClient& client, const char* msg, const String& origin) {
+  client.print("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n");
+  endHeaders(client, origin);
   client.print(msg);
   client.stop();
   Log.println("→ 503");
@@ -419,19 +439,21 @@ static void serveStatic(WiFiClient& client, const StaticFile* f) {
 // API: LED
 // ---------------------------------------------------------------------------
 
-static void sendLedState(WiFiClient& client) {
+static void sendLedState(WiFiClient& client, const String& origin) {
   char buf[24];
   snprintf(buf, sizeof(buf), "{\"state\":%s}", g_ledState ? "true" : "false");
-  client.print(
-      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\n");
+  endHeaders(client, origin);
   client.print(buf);
   client.stop();
   Log.printf("→ 200 led state=%s\n", g_ledState ? "on" : "off");
 }
 
-static void handleLedGet(WiFiClient& client) { sendLedState(client); }
+static void handleLedGet(WiFiClient& client, const String& origin) {
+  sendLedState(client, origin);
+}
 
-static void handleLedPatch(WiFiClient& client, const String& body) {
+static void handleLedPatch(WiFiClient& client, const String& body, const String& origin) {
   cJSON* json = cJSON_Parse(body.c_str());
   if (json) {
     cJSON* state = cJSON_GetObjectItem(json, "state");
@@ -442,10 +464,10 @@ static void handleLedPatch(WiFiClient& client, const String& body) {
     }
     cJSON_Delete(json);
   }
-  sendLedState(client);
+  sendLedState(client, origin);
 }
 
-static void handleLedBlink(WiFiClient& client, const String& body) {
+static void handleLedBlink(WiFiClient& client, const String& body, const String& origin) {
   String pattern = "200";
   cJSON* json = cJSON_Parse(body.c_str());
   if (json) {
@@ -464,14 +486,16 @@ static void handleLedBlink(WiFiClient& client, const String& body) {
     tok.trim();
     int ms = tok.toInt();
     if (ms <= 0) {
-      client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+      client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n");
+      endHeaders(client, origin);
       client.print("Invalid pattern: each value must be a positive integer.");
       client.stop();
       return;
     }
     total += ms;
     if (total > 5000) {
-      client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+      client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n");
+      endHeaders(client, origin);
       client.print("Pattern too long: total must not exceed 5000 ms.");
       client.stop();
       return;
@@ -481,7 +505,8 @@ static void handleLedBlink(WiFiClient& client, const String& body) {
     pos = comma + 1;
   }
 
-  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n");
+  endHeaders(client, origin);
   client.print("OK");
   client.stop();
   Log.printf("LED blink: %s (%d ms)\n", pattern.c_str(), total);
@@ -508,7 +533,13 @@ static void handleLedBlink(WiFiClient& client, const String& body) {
 // API: status
 // ---------------------------------------------------------------------------
 
-static void handleStatus(WiFiClient& client, const String& reqLine) {
+static void getDeviceId(char out[13]) {
+  uint64_t mac = ESP.getEfuseMac();
+  snprintf(out, 13, "%02x%02x%02x%02x%02x%02x", (int)((mac >> 40) & 0xff), (int)((mac >> 32) & 0xff),
+      (int)((mac >> 24) & 0xff), (int)((mac >> 16) & 0xff), (int)((mac >> 8) & 0xff), (int)(mac & 0xff));
+}
+
+static void handleStatus(WiFiClient& client, const String& reqLine, const String& origin) {
   BoardFeatures feat = boardFeatures();
   BatteryData bat = feat.battery ? boardBattery() : BatteryData{};
   bool isAP = wifiIsAP();
@@ -521,16 +552,16 @@ static void handleStatus(WiFiClient& client, const String& reqLine) {
   if (mode == "short_text") {
     char buf[128];
     if (!isAP && feat.battery)
-      snprintf(buf, sizeof(buf), "WiFi: %s (%ddB), Battery: %dmV (%d%%)", ssid.c_str(), (int)rssi, bat.voltage,
-          bat.level);
+      snprintf(
+          buf, sizeof(buf), "WiFi: %s (%ddB), Battery: %dmV (%d%%)", ssid.c_str(), (int)rssi, bat.voltage, bat.level);
     else if (!isAP)
       snprintf(buf, sizeof(buf), "WiFi: %s (%ddB)", ssid.c_str(), (int)rssi);
     else if (feat.battery)
       snprintf(buf, sizeof(buf), "WiFi: %s, Battery: %dmV (%d%%)", ssid.c_str(), bat.voltage, bat.level);
     else
       snprintf(buf, sizeof(buf), "WiFi: %s", ssid.c_str());
-    client.print(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+    client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nCache-Control: no-cache\r\n");
+    endHeaders(client, origin);
     client.print(buf);
     client.stop();
     Log.println("→ 200 status short_text");
@@ -553,8 +584,8 @@ static void handleStatus(WiFiClient& client, const String& reqLine) {
     }
     char* json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
-    client.print(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+    client.print("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\n");
+    endHeaders(client, origin);
     if (json) {
       client.print(json);
       free(json);
@@ -565,10 +596,8 @@ static void handleStatus(WiFiClient& client, const String& reqLine) {
   }
 
   // --- full (default) ---
-  uint64_t mac = ESP.getEfuseMac();
   char macStr[13];
-  snprintf(macStr, sizeof(macStr), "%02x%02x%02x%02x%02x%02x", (int)((mac >> 40) & 0xff), (int)((mac >> 32) & 0xff),
-      (int)((mac >> 24) & 0xff), (int)((mac >> 16) & 0xff), (int)((mac >> 8) & 0xff), (int)(mac & 0xff));
+  getDeviceId(macStr);
   cJSON* root = cJSON_CreateObject();
   if (feat.battery) {
     cJSON* battery = cJSON_CreateObject();
@@ -597,8 +626,8 @@ static void handleStatus(WiFiClient& client, const String& reqLine) {
   cJSON_AddItemToObject(root, "features", features);
   char* json = cJSON_PrintUnformatted(root);
   cJSON_Delete(root);
-  client.print(
-      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\n");
+  endHeaders(client, origin);
   if (json) {
     client.print(json);
     free(json);
@@ -608,6 +637,45 @@ static void handleStatus(WiFiClient& client, const String& reqLine) {
     Log.printf("→ 200 status %dmV %d%% %s\n", (int)bat.voltage, (int)bat.level, isAP ? "ap" : "station");
   else
     Log.printf("→ 200 status %s\n", isAP ? "ap" : "station");
+}
+
+// ---------------------------------------------------------------------------
+// API: hub status + store
+// ---------------------------------------------------------------------------
+
+static void handleHubStatus(WiFiClient& client, const String& origin) {
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\n");
+  endHeaders(client, origin);
+  client.print("{\"isStandalone\":false,\"store\":{\"read\":true}}");
+  client.stop();
+  Log.println("→ 200 hub/status");
+}
+
+static void handleHubStore(WiFiClient& client, const String& origin) {
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\n");
+  endHeaders(client, origin);
+  // "SELF" is a self-reference marker: the hub replaces it with window.location.origin
+  // so the URL matches however the device was accessed (IP, mDNS, etc.).
+  const char* authUser = getConfig().auth.username;
+  if (authUser) {
+    char macStr[13];
+    getDeviceId(macStr);
+    cJSON* j = cJSON_CreateString(authUser);
+    char* escapedUser = cJSON_PrintUnformatted(j);
+    cJSON_Delete(j);
+    client.print("{\"version\":1,\"cameras\":[{\"url\":\"SELF\",\"type\":\"kikker-x\",\"authId\":\"auth-");
+    client.print(macStr);
+    client.print("\"}],\"auths\":[{\"id\":\"auth-");
+    client.print(macStr);
+    client.print("\",\"username\":");
+    client.print(escapedUser);
+    cJSON_free(escapedUser);
+    client.print("}]}");
+  } else {
+    client.print("{\"version\":1,\"cameras\":[{\"url\":\"SELF\",\"type\":\"kikker-x\"}],\"auths\":[]}");
+  }
+  client.stop();
+  Log.println("→ 200 hub/store");
 }
 
 // ---------------------------------------------------------------------------
@@ -628,10 +696,11 @@ static void doPowerOff(int duration) {
   }
 }
 
-static void handlePowerOff(WiFiClient& client, const String& reqLine) {
+static void handlePowerOff(WiFiClient& client, const String& reqLine, const String& origin) {
   int duration = intParam(reqLine, "duration", 0);
   const char* body = duration == 0 ? "Powering off." : "Going to sleep.";
-  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n");
+  endHeaders(client, origin);
   client.print(body);
   client.flush();
   client.stop();
@@ -646,7 +715,7 @@ static void handlePowerOff(WiFiClient& client, const String& reqLine) {
 // MJPEG stream
 // ---------------------------------------------------------------------------
 
-static void handleMjpeg(WiFiClient& client, const String& reqLine) {
+static void handleMjpeg(WiFiClient& client, const String& reqLine, const String& origin) {
   sensor_t* s = esp_camera_sensor_get();
   framesize_t streamFs = resolveName(parseParam(reqLine, "res"));
   int streamQuality = intParam(reqLine, "quality", 12);
@@ -686,8 +755,9 @@ static void handleMjpeg(WiFiClient& client, const String& reqLine) {
       "HTTP/1.1 200 OK\r\n"
       "Content-Type: multipart/x-mixed-replace;boundary=" BOUNDARY
       "\r\n"
-      "Cache-Control: no-cache\r\n"
-      "Connection: keep-alive\r\n\r\n");
+      "Cache-Control: no-cache\r\n");
+  printCors(client, origin);
+  client.print("Connection: keep-alive\r\n\r\n");
 
   Log.printf("Stream started: res=%s quality=%d\n", parseParam(reqLine, "res").c_str(), streamQuality);
 
@@ -783,7 +853,7 @@ static void handleMjpeg(WiFiClient& client, const String& reqLine) {
 // API: logs
 // ---------------------------------------------------------------------------
 
-static void handleLogs(WiFiClient& client) {
+static void handleLogs(WiFiClient& client, const String& origin) {
   const char* p1;
   size_t l1;
   const char* p2;
@@ -792,7 +862,8 @@ static void handleLogs(WiFiClient& client) {
   size_t total = l1 + l2;
   client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ");
   client.print(total);
-  client.print("\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+  client.print("\r\nCache-Control: no-cache\r\n");
+  endHeaders(client, origin);
   if (l1)
     sendBytes(client, (const uint8_t*)p1, l1);
   if (l2)
@@ -805,11 +876,11 @@ static void handleLogs(WiFiClient& client) {
 // API: stream FPS
 // ---------------------------------------------------------------------------
 
-static void handleStreamFps(WiFiClient& client) {
+static void handleStreamFps(WiFiClient& client, const String& origin) {
   char buf[48];
   snprintf(buf, sizeof(buf), "{\"fps\":%.1f,\"active\":%s}", g_streamFps.load(), g_streamActive ? "true" : "false");
-  client.print(
-      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\n");
+  endHeaders(client, origin);
   client.print(buf);
   client.stop();
 }
@@ -817,11 +888,12 @@ static void handleStreamFps(WiFiClient& client) {
 struct StreamTaskArgs {
   WiFiClient client;
   String reqLine;
+  String origin;
 };
 
 static void streamTask(void* arg) {
   StreamTaskArgs* args = (StreamTaskArgs*)arg;
-  handleMjpeg(args->client, args->reqLine);
+  handleMjpeg(args->client, args->reqLine, args->origin);
   delete args;
   // If a capture task is in progress (stream client disconnected during pause),
   // let captureTask handle the camera release.
@@ -881,7 +953,7 @@ static void applyRawSensorSettings(sensor_t* s, const String& reqLine) {
   APPLY_IF_PRESENT("colorbar", s->set_colorbar(s, _v.toInt()))
 }
 
-static void handleCapture(WiFiClient& client, const String& reqLine) {
+static void handleCapture(WiFiClient& client, const String& reqLine, const String& origin) {
   sensor_t* s = esp_camera_sensor_get();
   String resName = parseParam(reqLine, "res");
   framesize_t fs = resName.length() > 0 ? resolveName(resName) : FRAMESIZE_UXGA;
@@ -912,7 +984,8 @@ static void handleCapture(WiFiClient& client, const String& reqLine) {
   xSemaphoreGive(cameraMutex);
 
   if (!fb) {
-    client.print("HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n");
+    client.print("HTTP/1.1 500 Internal Server Error\r\n");
+    endHeaders(client, origin);
     client.stop();
     Log.println("→ 500 capture: esp_camera_fb_get returned null");
     return;
@@ -937,7 +1010,9 @@ static void handleCapture(WiFiClient& client, const String& reqLine) {
 
   uint16_t capW = fb->width, capH = fb->height;
   size_t capLen = fb->len;
-  client.print("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: ");
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\n");
+  printCors(client, origin);
+  client.print("Content-Length: ");
   client.print(capLen);
   client.print("\r\nConnection: close\r\n\r\n");
 
@@ -955,14 +1030,15 @@ struct CaptureTaskArgs {
   WiFiClient client;
   String reqLine;
   bool wasStreaming;
+  String origin;
 };
 
 static void captureTask(void* arg) {
   CaptureTaskArgs* args = (CaptureTaskArgs*)arg;
   bool wasStreaming = args->wasStreaming;
   String reqLine = args->reqLine;
-  g_captureActive = true;
-  handleCapture(args->client, args->reqLine);
+  String origin = args->origin;
+  handleCapture(args->client, args->reqLine, origin);
   delete args;
 
   if (wasStreaming) {
@@ -1026,22 +1102,43 @@ void loop() {
   String reqLine = client.readStringUntil('\n');
   reqLine.trim();
   String authHeader;
-  int bodyLen = readHeaders(client, authHeader);
+  String originHeader;
+  int bodyLen = readHeaders(client, authHeader, originHeader);
 
   Log.println(reqLine);
 
   bool isGet = reqLine.startsWith("GET ");
   bool isPost = reqLine.startsWith("POST ");
   bool isPatch = reqLine.startsWith("PATCH ");
+  bool isOptions = reqLine.startsWith("OPTIONS ");
+
+  // Handle CORS preflight before auth check — preflights carry no credentials.
+  if (isOptions) {
+    client.print("HTTP/1.1 204 No Content\r\n");
+    if (originHeader.length() > 0 && getConfig().allow_cors) {
+      client.print("Access-Control-Allow-Origin: ");
+      client.print(originHeader);
+      client.print(
+          "\r\nAccess-Control-Allow-Methods: GET, POST, PATCH\r\n"
+          "Access-Control-Allow-Headers: Authorization\r\n"
+          "Access-Control-Max-Age: 86400\r\n"
+          "Vary: Origin\r\n");
+    }
+    client.print("Connection: close\r\n\r\n");
+    client.stop();
+    Log.println("→ 204 OPTIONS");
+    return;
+  }
+
   if (!isGet && !isPost && !isPatch) {
-    send405(client);
+    send405(client, originHeader);
     return;
   }
 
   String path = parsePath(reqLine);
 
-  if (path != "/manifest.json" && !authCheck(authHeader)) {
-    authDeny(client);
+  if (path != "/manifest.json" && path != "/logo.svg" && path != "/logo.png" && !authCheck(authHeader)) {
+    authDeny(client, originHeader);
     return;
   }
 
@@ -1049,7 +1146,8 @@ void loop() {
   if (isPost) {
     String body = readBody(client, bodyLen);
     if (path == "/api/restart") {
-      client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+      client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n");
+      endHeaders(client, originHeader);
       client.print("Restarting.");
       client.flush();
       client.stop();
@@ -1057,7 +1155,8 @@ void loop() {
       delay(500);
       ESP.restart();
     } else if (path == "/api/wifi/reconnect") {
-      client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n");
+      client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n");
+      endHeaders(client, originHeader);
       client.print("Reconnecting to WiFi.");
       client.flush();
       client.stop();
@@ -1069,14 +1168,14 @@ void loop() {
         if (!MDNS.begin(g_mdnsName.c_str()))
           Log.println("mDNS start failed");
     } else if (path == "/api/poweroff")
-      handlePowerOff(client, reqLine);
+      handlePowerOff(client, reqLine, originHeader);
     else if (path == "/api/led/blink") {
       if (!boardFeatures().led)
-        send404(client);
+        send404(client, originHeader);
       else
-        handleLedBlink(client, body);
+        handleLedBlink(client, body, originHeader);
     } else
-      send405(client);
+      send405(client, originHeader);
     return;
   }
 
@@ -1085,11 +1184,11 @@ void loop() {
     String body = readBody(client, bodyLen);
     if (path == "/api/led") {
       if (!boardFeatures().led)
-        send404(client);
+        send404(client, originHeader);
       else
-        handleLedPatch(client, body);
+        handleLedPatch(client, body, originHeader);
     } else
-      send405(client);
+      send405(client, originHeader);
     return;
   }
 
@@ -1111,50 +1210,66 @@ void loop() {
   // --- GET API routes ---
   if (path.startsWith("/api/")) {
     if (path == "/api/logs") {
-      handleLogs(client);
+      handleLogs(client, originHeader);
+    } else if (path == "/api/hub/status") {
+      handleHubStatus(client, originHeader);
+    } else if (path == "/api/hub/store") {
+      handleHubStore(client, originHeader);
     } else if (path == "/api/status") {
-      handleStatus(client, reqLine);
+      handleStatus(client, reqLine, originHeader);
     } else if (path == "/api/led") {
       if (!boardFeatures().led)
-        send404(client);
+        send404(client, originHeader);
       else
-        handleLedGet(client);
+        handleLedGet(client, originHeader);
     } else if (path == "/api/streamfps") {
-      handleStreamFps(client);
+      handleStreamFps(client, originHeader);
     } else if (path == "/api/cam/stream.mjpeg") {
+      if (g_captureActive) {
+        send503(client, "Capture in progress.", originHeader);
+        return;
+      }
       stopStream();
       if (!cameraEnsureReady()) {
-        send503(client, "Camera unavailable.");
+        send503(client, "Camera unavailable.", originHeader);
         return;
       }
       g_streamActive = true;
-      StreamTaskArgs* args = new StreamTaskArgs{client, reqLine};
+      StreamTaskArgs* args = new StreamTaskArgs{client, reqLine, originHeader};
       if (xTaskCreate(streamTask, "stream", 8192, args, 1, NULL) != pdPASS) {
         g_streamActive = false;
         delete args;
         cameraRelease();
-        send503(client, "Out of resources.");
+        send503(client, "Out of resources.", originHeader);
       }
     } else if (path == "/api/cam/capture.jpg") {
-      bool wasStreaming = pauseStreamForCapture();
-      if (!wasStreaming && !cameraEnsureReady()) {
-        send503(client, "Camera unavailable.");
+      if (g_captureActive) {
+        send503(client, "Capture in progress.", originHeader);
         return;
       }
-      CaptureTaskArgs* args = new CaptureTaskArgs{client, reqLine, wasStreaming};
+      bool wasStreaming = pauseStreamForCapture();
+      if (!wasStreaming && !cameraEnsureReady()) {
+        send503(client, "Camera unavailable.", originHeader);
+        return;
+      }
+      // Set g_captureActive before xTaskCreate so the flag is visible to other
+      // tasks (stream, main loop) before captureTask starts running.
+      g_captureActive = true;
+      CaptureTaskArgs* args = new CaptureTaskArgs{client, reqLine, wasStreaming, originHeader};
       if (xTaskCreate(captureTask, "capture", 8192, args, 1, NULL) != pdPASS) {
+        g_captureActive = false;
         delete args;
         if (wasStreaming)
           g_streamPause = false;  // let the stream resume
         else
           cameraRelease();
-        send503(client, "Out of resources.");
+        send503(client, "Out of resources.", originHeader);
       }
     } else {
-      send404(client);
+      send404(client, originHeader);
     }
     return;
   }
 
-  send404(client);
+  send404(client, originHeader);
 }

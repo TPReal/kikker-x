@@ -18,47 +18,48 @@
         <a href="/photo">Photo</a>
         <a href="/video">Video</a>
       </div>
+      <a href="/hub" class="page-link hub-link">· Cameras Hub ·</a>
 
       <div class="section-hd">
         <h2>Status</h2>
-        <button type="button" id="refresh-btn" class="refresh-btn" title="Refresh">↻</button>
+        <button type="button" id="refreshBtn" class="icon-btn" style="margin-bottom: 12px" title="Refresh">↻</button>
       </div>
       <div class="status-info">
-        <span class="sl">Board:</span><span id="status-board">…</span>
-        <span class="sl">Device ID:</span><span id="status-id">…</span>
-        <span class="sl">Version:</span><span id="status-ver">…</span>
-        <div id="battery-row" style="display:contents">
-          <span class="sl">Battery:</span><span id="status-bat">…</span>
+        <span class="sl">Board:</span><span id="statusBoard">…</span>
+        <span class="sl">Device ID:</span><span id="statusId">…</span>
+        <span class="sl">Version:</span><span id="statusVer">…</span>
+        <div id="batteryRow" style="display:contents">
+          <span class="sl">Battery:</span><span id="statusBat">…</span>
         </div>
-        <span class="sl">WiFi:</span><span id="status-wifi">…</span>
+        <span class="sl">WiFi:</span><span id="statusWifi">…</span>
       </div>
 
-      <a href="/logs" style="display: block; color: #555; font-size: 12px; margin: -16px 0 24px">Logs</a>
+      <a href="/logs" class="page-link logs-link">Logs</a>
 
-      <div id="led-section">
+      <div id="ledSection">
         <h2>LED</h2>
         <div class="led-row">
-          <button type="button" id="led-btn" class="led-btn" title="Toggle the LED state on the device">
+          <button type="button" id="ledBtn" class="led-btn" title="Toggle the LED state on the device">
             <div style="margin-bottom: 3px">●</div>
           </button>
-          <button type="button" id="blink-btn" class="blink-btn" title="Blink the LED on the device">★ Blink</button>
+          <button type="button" id="blinkBtn" class="blink-btn" title="Blink the LED on the device">★ Blink</button>
         </div>
       </div>
 
       <h2>Power</h2>
       <div class="btn-row">
-        <button type="button" id="reconnect-btn" class="restart-btn"
+        <button type="button" id="reconnectBtn" class="restart-btn"
           title="Disconnect from WiFi and reconnect">Reconnect</button>
-        <button type="button" id="restart-btn" class="restart-btn" title="Restart the device">Restart</button>
+        <button type="button" id="restartBtn" class="restart-btn" title="Restart the device">Restart</button>
       </div>
       <div class="btn-row">
-        <input type="number" id="dur-val" class="dur-val" min="1" max="255" value="30" />
-        <select id="dur-unit">
+        <input type="number" id="durVal" class="dur-val" min="1" max="255" value="30" />
+        <select id="durUnit">
           <option value="m">minutes</option>
           <option value="h">hours</option>
           <option value="permanent">permanent</option>
         </select>
-        <button type="button" id="poweroff-btn" class="off-btn"
+        <button type="button" id="poweroffBtn" class="off-btn"
           title="Power off the device and power on again after the specified time">Power off</button>
       </div>
       <div id="msg"></div>

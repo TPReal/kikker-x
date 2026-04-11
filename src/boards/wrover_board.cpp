@@ -1,9 +1,8 @@
-#include "board.h"
-
 #include <Arduino.h>
 #include <esp_camera.h>
 #include <esp_sleep.h>
 
+#include "board.h"
 #include "log.h"
 
 #define LED_GPIO 2
@@ -79,7 +78,9 @@ bool boardCameraInit() {
 void boardSetLed(bool on) {
   digitalWrite(LED_GPIO, on ? HIGH : LOW);
 }
-BatteryData boardBattery() { return {0, 0}; }
+BatteryData boardBattery() {
+  return {0, 0};
+}
 
 void boardPowerOff() {
   esp_deep_sleep_start();

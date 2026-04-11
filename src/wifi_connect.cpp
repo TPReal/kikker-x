@@ -18,7 +18,9 @@ static const unsigned long AP_SCAN_INTERVAL_MS = 5UL * 60 * 1000;
 static const WifiEntry* g_current = nullptr;
 static bool g_apMode = false;
 
-bool wifiIsAP() { return g_apMode; }
+bool wifiIsAP() {
+  return g_apMode;
+}
 
 static void applyIpConfig(const WifiEntry* e) {
   if (e->static_ip) {

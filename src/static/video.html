@@ -12,8 +12,8 @@
     <link rel="stylesheet" href="/video.css" />
   </head>
   <body>
-    <div id="main-layout">
-      <div id="canvas-area">
+    <div id="mainLayout">
+      <div id="canvasArea">
         <div class="bar">
           <span class="nav-title"><a href="/">⇦</a> Video</span>
           <div class="bar-center">
@@ -27,20 +27,20 @@
               <option value="SXGA">1280×1024 (SXGA)</option>
               <option value="UXGA">1600×1200 (UXGA)</option>
             </select>
-            <button type="button" id="res-reset" class="reset-btn">↺</button>
-            <span id="status">⏳</span>
+            <button type="button" id="resReset" class="icon-btn">↺</button>
+            <label id="status">⏳</label>
           </div>
           <div class="bar-center">
-            <button type="button" id="refresh-btn">↻ Refresh</button>
-            <button type="button" id="fs-btn" title="Fullscreen">⛶</button>
+            <button type="button" id="refreshBtn">↻ Refresh</button>
+            <button type="button" id="fsBtn" title="Fullscreen">⛶</button>
           </div>
         </div>
-        <div id="canvas-wrap">
-          <img id="stream-img" alt="" />
+        <div id="canvasWrap">
+          <img id="streamImg" alt="" />
         </div>
       </div>
-      <div id="settings-area">
-        <div id="settings-container"></div>
+      <div id="settingsArea">
+        <div id="settingsContainer"></div>
       </div>
     </div>
 

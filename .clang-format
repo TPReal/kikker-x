@@ -6,5 +6,6 @@ UseTab: Never
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: None
 AlignAfterOpenBracket: DontAlign
 AlignTrailingComments: false

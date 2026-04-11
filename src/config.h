@@ -21,10 +21,11 @@ struct ApFallback {
 
 struct Config {
   const char* mdns;  // nullptr to disable mDNS, otherwise registered as <value>.local
-  AuthConfig auth;  // auth.username == nullptr → auth disabled
   const WifiEntry* wifi_entries;
   int num_wifi_entries;
   const ApFallback* ap_fallback;  // nullptr if not configured
+  bool allow_cors;  // send Access-Control-Allow-Origin headers; default true
+  AuthConfig auth;  // auth.username == nullptr → auth disabled
 };
 
 // Parse the embedded _config.json and return a filled Config.

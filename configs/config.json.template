@@ -27,6 +27,11 @@
     "password": "your-ap-password (or \"RANDOM\" to generate one at boot and print it to serial)"
   },
 
+  // Allow cross-origin requests (CORS). Set to false to disable Access-Control-Allow-Origin headers.
+  // When disabled, the Cameras Hub can still display thumbnails via <img>, but cannot send auth
+  // headers, read error details, or fetch status information for this camera.
+  "allow_cors": true,
+
   // Authentication for the web interface.
   // To disable auth, set auth to null:
   //   "auth": null,

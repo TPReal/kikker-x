@@ -2,8 +2,8 @@
 
 <img src="logo.svg" alt="KikkerX logo" width="96">
 
-Wi-Fi camera server firmware for ESP32-based cameras. Streams live MJPEG video, serves full-resolution still photos,
-and provides a self-contained web interface — all over plain HTTP with no app or cloud required.
+Wi-Fi camera server firmware for ESP32-based cameras. Streams live MJPEG video, serves full-resolution still photos, and
+provides a self-contained web interface — all over plain HTTP with no app or cloud required.
 
 ---
 
@@ -11,8 +11,8 @@ and provides a self-contained web interface — all over plain HTTP with no app 
 
 Supported boards:
 
-- **[M5Stack Timer Camera X](https://docs.m5stack.com/en/unit/timercam_x)** — OV3660 sensor (up to 1600×1200),
-  built-in LiPo charger, BM8563 RTC for timed sleep, and a blue status LED.
+- **[M5Stack Timer Camera X](https://docs.m5stack.com/en/unit/timercam_x)** — OV3660 sensor (up to 1600×1200), built-in
+  LiPo charger, BM8563 RTC for timed sleep, and a blue status LED.
 - **[ESP-WROVER-DEV](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/hw-reference/esp32/get-started-wrover-kit.html)**
   (and compatible ESP32-WROVER boards) — OV3660 sensor, 4 MB PSRAM, user-controllable blue IO2 LED. No battery
   monitoring; uses the ESP32's built-in timer for timed wake-up.
@@ -36,6 +36,8 @@ Supported boards:
 - **mDNS**: reachable at `http://kikker-x.local/` or a custom hostname.
 - **Basic auth** (optional): username + SHA-256-hashed password in the config file.
 - **Mobile-friendly UI**: responsive layout that works well on phones and tablets.
+- **Cameras Hub**: multi-camera dashboard showing live thumbnails and links for any number of KikkerX or other cameras.
+  Runs embedded on every device at `/hub`, or standalone via `cameras_hub.py` on any machine.
 
 <table>
   <tr>
@@ -49,18 +51,24 @@ Supported boards:
       <a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" alt="Settings panel" width="240"></a>
     </td>
   </tr>
+  <tr>
+    <td colspan="2">
+      <a href="docs/screenshots/hub.png"><img src="docs/screenshots/hub.png" alt="Cameras Hub" width="500"></a>
+    </td>
+  </tr>
 </table>
 
 ---
 
-## AI usage and engineering standard
+## AI usage and engineering standards
 
 This project is developed with the assistance of AI tools, including Claude Code, Gemini and GitHub Copilot. The main
 engineer behind the project is me — a human engineer with 20+ years of professional IT experience. I design the
 architecture, and yes, I read and approve all the code, and write some of it. This project is by no means "AI slop" —
-the AI was used as a power tool, not as the brain. (And emdashes do look nicer, I copied and pasted them in this
-paragraph. And the initial commit is huge because the project was developed for a long time and I just squashed
-everything at v1.)
+the AI was used as a power tool, not as the brain.
+
+And emdashes do look nicer, I copied and pasted them in this paragraph. And some commits are huge because the project
+was developed and in flux for a long time, and then I just squashed everything to get a cleaner history.
 
 ---
 
@@ -90,139 +98,19 @@ esptool.exe --chip esp32 --port COM3 --baud 115200 write-flash `
 ```
 
 The default firmware starts an access point named **KikkerX** with a randomly generated password. Connect a serial
-monitor (115200 baud) to read the password from the boot log, then connect to the AP and open
-`http://192.168.4.1/`.
+monitor (115200 baud) to read the password from the boot log, then connect to the AP and open `http://192.168.4.1/`.
 
-To use your own WiFi network or change any settings, follow the [Getting started](#getting-started) section to build
-and flash a custom config.
+To use your own WiFi network or change any settings, follow the [Getting started guide](docs/getting-started.md) to
+build and flash a custom config.
 
 ---
 
 ## Getting started
 
-### 1. Install tooling
+Install PlatformIO, write a config file with your WiFi credentials, and flash. [uv](https://docs.astral.sh/uv/) is
+needed only for development or the video recorder.
 
-#### - PlatformIO
-
-Install [PlatformIO](https://platformio.org/install) — either the CLI or the VS Code extension. Required for building
-and flashing the firmware.
-
-#### - uv (optional)
-
-[uv](https://docs.astral.sh/uv/) is needed if you want to:
-
-- Use the **[video recorder](#recording-to-video)** (`./video_saver.py`)
-- Do **development** — run the fake server (`./fake_server.py`) or format/lint checks (`./format.sh`, `./checks.sh`)
-
-If you only want to build and flash the firmware, you can skip this. Python 3.11 or higher is required (also by the
-PlatformIO build scripts).
-
-To install **uv**:
-
-```sh
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Then install Python dependencies:
-
-```sh
-uv sync
-```
-
-**WSL note:** uv may warn about falling back to full copy instead of hardlinks. This is expected when the uv cache and
-the project are on different filesystems. To suppress it, set
-[`UV_LINK_MODE=copy`](https://docs.astral.sh/uv/reference/environment/) in your shell profile:
-
-```sh
-echo 'export UV_LINK_MODE=copy' >> ~/.bashrc   # or ~/.zshrc
-```
-
-### 2. Configure
-
-All configuration lives in a single JSON file embedded into the firmware as assets at build time. The template at
-`configs/config.json.template` documents all fields.
-
-For a single device, the quickest path is to add a config file under `configs/custom/` (gitignored) and point the build
-at it. See `configs/README.md` for the full workflow, including multi-device setups.
-
-A minimal config looks like:
-
-```json
-{
-  "mdns": "kikker-x",
-  "known_networks": [
-    { "ssid": "HomeNet", "password": "hunter2" },
-    { "ssid": "PhoneHotspot", "password": "hunter3" }
-  ],
-  "fallback_access_point": {
-    "ssid": "KikkerX",
-    "password": "password or RANDOM"
-  },
-  "auth": null
-}
-```
-
-The device connects to the strongest visible network from `known_networks`. Multiple entries are useful for roaming e.g.
-between home and a phone hotspot.
-
-If no known network is reachable after three scan attempts, the device starts a soft access point using the
-`fallback_access_point` credentials. Connect to it and browse to `http://192.168.4.1/` to reach the web interface. The
-device scans every 5 minutes while in AP mode and switches back to station mode automatically once a known network
-becomes visible again.
-
-Setting `"password": "RANDOM"` generates a random 12-character password at boot and prints it to the serial log.
-
-Set `"fallback_access_point": null` to disable the fallback — the device will then retry indefinitely instead of
-starting an AP.
-
-If `known_networks` is empty, the device goes straight to AP mode without scanning.
-
-Optional static IP per network entry:
-
-```json
-{
-  "ssid": "HomeNet",
-  "password": "hunter2",
-  "static_ip": "192.168.1.50",
-  "subnet_mask": "255.255.255.0",
-  "gateway": "192.168.1.1",
-  "dns": "8.8.8.8"
-}
-```
-
-**Authentication** — set a username and a SHA-256 hash of the password. You can calculate the hash with
-`IFS= read -rsp 'Password: ' pass && echo && printf '%s' "$pass" | sha256sum | cut -d' ' -f1; unset pass`. Paste the
-resulting hash into `pass_sha256`. To disable auth entirely, set `"auth": null`.
-
-**mDNS hostname** — set `"mdns"` to the full hostname you want:
-
-```json
-{ "mdns": "kikker-x-garden" }
-```
-
-This device will then be reachable at `http://kikker-x-garden.local/`.
-
-### 3. Build and flash
-
-Two built-in environments cover the supported boards:
-
-```sh
-pio run -e kikker-x-timercam-default --target upload   # M5Stack Timer Camera X
-pio run -e kikker-x-wrovercam-default --target upload  # ESP-WROVER-DEV
-```
-
-For named per-device environments, define them in `configs/platformio.ini` (see `configs/platformio.ini.template` and
-`configs/README.md`) and then:
-
-```sh
-pio run -e kikker-x-garden --target upload
-```
-
-Watch the serial output for the assigned IP address:
-
-```sh
-pio device monitor
-```
+→ [Getting started guide](docs/getting-started.md)
 
 ---
 
@@ -246,227 +134,28 @@ useful for copy-pasting into scripts. See the API section below for details.
 
 ## API
 
-All endpoints are plain HTTP. If authentication is enabled, pass credentials with every request using HTTP Basic auth:
+Plain HTTP endpoints for status, camera stream/capture, LED, power, WiFi, and logs. All support HTTP Basic auth when
+enabled.
 
-```sh
-curl -u admin "http://kikker-x.local/api/status"
-# curl will prompt for the password
-```
+→ [API reference](docs/api.md)
 
-Or inline (less safe — visible in shell history):
+---
 
-```sh
-curl -u admin:password "http://kikker-x.local/api/status"
-```
+## Cameras Hub
 
-The examples below omit `-u` for brevity; add it if auth is enabled. Use `--fail-with-body` to get a non-zero exit code
-and a visible error on auth failures or other HTTP errors.
+Multi-camera dashboard — view thumbnails and links for any number of KikkerX or other cameras. Runs embedded on each
+device, or standalone via `cameras_hub.py` (no hardware needed).
 
-### Status
-
-```sh
-curl "http://kikker-x.local/api/status"
-# → { "battery": { "voltage": 3850, "level": 75 },
-#      "id": "c0ffeefacade",
-#      "wifi": { "mode": "station", "ssid": "HomeNet", "ip": "192.168.1.50", "rssi": -52 },
-#      "version": "1.1.0",
-#      "camera": "kikker-x",
-#      "features": { "board": "M5Stack Timer Camera X", "led": true, "battery": true } }
-```
-
-`battery` is omitted for boards without battery monitoring. `features.led` and `features.battery` indicate which
-optional hardware is present. `camera` is always `"kikker-x"` and can be used to identify the firmware type.
-
-In AP mode `wifi.mode` is `"ap"`, `ssid` and `ip` reflect the soft AP, and `rssi` is absent.
-
-#### Short modes
-
-Pass `?mode=` to get a lighter response:
-
-```sh
-curl "http://kikker-x.local/api/status?mode=short"
-# → { "wifi": { "ssid": "HomeNet", "rssi": -52 }, "battery": { "voltage": 3850, "level": 75 } }
-```
-
-```sh
-curl "http://kikker-x.local/api/status?mode=short_text"
-# → WiFi: HomeNet (-52dB), Battery: 3850mV (75%)
-```
-
-`short` returns a JSON subset. `short_text` returns a plain-text one-liner — useful for logging alongside recordings
-(see `--status-url`). Both omit `rssi` in AP mode and omit `battery` on boards without battery monitoring.
-
-### Camera
-
-```sh
-curl "http://kikker-x.local/api/cam/stream.mjpeg?res=VGA&quality=12&brightness=0" --output stream.mjpeg
-```
-
-Returns a `multipart/x-mixed-replace` MJPEG stream. Supported resolutions: `QQVGA` (160×120), `QVGA` (320×240), `CIF`
-(400×296), `VGA` (640×480), `SVGA` (800×600), `XGA` (1024×768), `SXGA` (1280×1024), `UXGA` (1600×1200).
-
-```sh
-curl "http://kikker-x.local/api/cam/capture.jpg?res=UXGA&quality=4" --output photo.jpg
-```
-
-Returns a single JPEG still. Defaults to UXGA and quality 4 (high). Accepts the same sensor parameters as the stream.
-Add `raw=1` to apply only the parameters explicitly present in the URL (useful for scripted capture).
-
-```sh
-curl "http://kikker-x.local/api/streamfps"
-# → { "fps": 9.4, "active": true }
-```
-
-### LED
-
-```sh
-curl "http://kikker-x.local/api/led"
-# → { "state": false }
-
-curl -X PATCH "http://kikker-x.local/api/led" -H "Content-Type: application/json" -d '{"state": true}'
-# → { "state": true }
-
-curl -X POST "http://kikker-x.local/api/led/blink" -H "Content-Type: application/json" -d '{"pattern": "200,200,200,200,200"}'
-```
-
-The blink pattern is a comma-separated list of millisecond durations (on, off, on, off, …). Total must not exceed 5000
-ms. The LED returns to its previous state afterwards.
-
-### Power
-
-```sh
-curl -X POST "http://kikker-x.local/api/poweroff?duration=0"        # permanent power-off
-curl -X POST "http://kikker-x.local/api/poweroff?duration=3600"     # sleep for 1 hour
-curl -X POST "http://kikker-x.local/api/restart"                    # reboot the device
-```
-
-`duration=0` powers off permanently. Any other value (in seconds) puts the device into deep sleep and it wakes
-automatically after `N` seconds. The web UI enforces a maximum of 15,300 seconds (255 minutes).
-
-`/api/restart` performs a clean software reboot (`ESP.restart()`). The device responds with `200 OK` before rebooting,
-so the response confirms the request was received.
-
-### WiFi
-
-```sh
-curl -X POST "http://kikker-x.local/api/wifi/reconnect"
-```
-
-Responds immediately, then waits 3 seconds and reconnects — selecting the strongest visible known network. Useful for
-roaming to a different access point. Also works in AP mode to force an immediate attempt to join a known network.
-
-### Logs
-
-```sh
-curl "http://kikker-x.local/api/logs"   # plain-text in-memory log buffer
-```
+→ [Cameras Hub documentation](docs/cameras-hub.md)
 
 ---
 
 ## Recording to video
 
-`video_saver.py` records the MJPEG stream or a timelapse to H.264 MP4 files using `ffmpeg`.
+`video_saver.py` records the MJPEG stream or a timelapse to H.264 MP4 files using `ffmpeg`. Supports rolling files,
+battery-saving deep sleep between timelapse frames, and status logging.
 
-Requires `ffmpeg` with libx264 (most distributions ship this). Python dependencies are managed with
-[uv](https://docs.astral.sh/uv/) — see [Getting started](#getting-started).
-
-Always quote the URL — the `?` and `&` in query strings are shell metacharacters and will be misinterpreted if unquoted.
-
-**Stream recording** — records live MJPEG, rolling to a new file every hour:
-
-```sh
-./video_saver.py \
-    "http://kikker-x.local/api/cam/stream.mjpeg?res=VGA" \
-    --output-dir ./recordings
-```
-
-**Stream at 5 fps, high compression, roll every 500 MB:**
-
-```sh
-./video_saver.py \
-    "http://kikker-x.local/api/cam/stream.mjpeg?res=SVGA" \
-    --output-dir ./recordings \
-    --fps-cap 5 --quality 28 --encode-preset slow --roll-size-mb 500
-```
-
-**Timelapse** — one frame every 30 seconds, new file every 24 hours:
-
-```sh
-./video_saver.py \
-    "http://kikker-x.local/api/cam/capture.jpg?res=UXGA" \
-    --output-dir ./timelapse \
-    --timelapse-interval 30s \
-    --roll-interval 24h
-```
-
-**One week timelapse with auth, roll at 500 MB:**
-
-```sh
-./video_saver.py \
-    "http://kikker-x.local/api/cam/capture.jpg?res=UXGA" \
-    --output-dir ./timelapse \
-    --timelapse-interval 1m \
-    --total-time 7d \
-    --roll-size-mb 500 \
-    --auth-user admin
-```
-
-#### Battery-saving timelapse
-
-Pass `--timelapse-sleep-url` to POST a URL after each successful capture — typically `/api/poweroff?duration=N` — to put
-the device into timed deep sleep between frames. Use `{{interval}}` in the URL as a placeholder; it is replaced with the
-sleep duration in seconds (`--timelapse-interval` minus `--timelapse-sleep-margin`).
-
-```sh
-./video_saver.py \
-    "http://kikker-x.local/api/cam/capture.jpg?res=UXGA" \
-    --output-dir ./timelapse \
-    --timelapse-interval 5m \
-    --roll-interval 24h \
-    --timelapse-sleep-url "http://kikker-x.local/api/poweroff?duration={{interval}}" \
-    --timelapse-sleep-margin 30s
-```
-
-This example sleeps for 270 s (5 min − 30 s), leaving 30 s for boot and WiFi reconnect. The script's retry logic handles
-the device being temporarily unreachable while it sleeps; `--timelapse-interval` acts as a minimum gap between frames —
-if the device comes up early the script waits out the remainder.
-
-**Stream with periodic status logging:**
-
-```sh
-./video_saver.py \
-    "http://kikker-x.local/api/cam/stream.mjpeg?res=VGA" \
-    --output-dir ./recordings \
-    --status-url "/api/status?mode=short_text" \
-    --status-interval 5m
-```
-
-#### Flags
-
-| Flag                       | Default | Description                                             |
-| -------------------------- | ------- | ------------------------------------------------------- |
-| `--output-dir`             | —       | Directory for output files (required)                   |
-| `--roll-interval`          | `1h`    | Start a new file after this duration                    |
-| `--total-time`             | —       | Stop after this total time                              |
-| `--roll-size-mb`           | —       | Also roll when file exceeds N MB                        |
-| `--quality`                | `23`    | H.264 CRF (lower = better quality, larger file)         |
-| `--encode-preset`          | `fast`  | `ultrafast` … `veryslow`                                |
-| `--fps-cap`                | —       | [stream] Drop frames to stay at or below N fps          |
-| `--timelapse-interval`     | —       | [timelapse] Capture interval                            |
-| `--timelapse-fps`          | `25`    | [timelapse] Playback frame rate of output video         |
-| `--timelapse-sleep-url`    | —       | [timelapse] URL to POST after each frame (device sleep) |
-| `--timelapse-sleep-margin` | `0s`    | [timelapse] Subtracted from interval for `{{interval}}` |
-| `--connect-timeout`        | `10`    | Timeout in seconds for the initial HTTP connection      |
-| `--read-timeout`           | `30`    | Timeout in seconds for receiving data; triggers a retry |
-| `--retry-delay`            | `2s`    | Initial wait before retrying after an error             |
-| `--max-retry-delay`        | `1m`    | Exponential backoff cap for retry delay                 |
-| `--auth-user`              | —       | HTTP Basic auth username                                |
-| `--auth-password`          | —       | HTTP Basic auth password (prompted if omitted)          |
-| `--status-url`             | —       | URL to fetch periodically and log alongside recordings  |
-| `--status-interval`        | `10m`   | How often to fetch `--status-url`                       |
-| `--debug`                  | —       | Print per-frame timing events to stdout                 |
-
-Press Ctrl-C to stop cleanly — the current segment is finalized before exit.
+→ [video_saver.py documentation](docs/video-saver.md)
 
 ---
 
@@ -474,13 +163,7 @@ Press Ctrl-C to stop cleanly — the current segment is finalized before exit.
 
 `fake_server.py` serves the static UI from `src/static/` and simulates all API endpoints — no hardware needed.
 
-```sh
-./fake_server.py                        # http://localhost:8080/, Timer Camera X features
-./fake_server.py --port 9000            # custom port
-./fake_server.py --board wrovercam      # simulate ESP-WROVER-DEV (no battery)
-```
-
-`/api/restart` re-executes the server process. `/api/poweroff` shuts it down.
+→ [Development guide](docs/development.md)
 
 ---
 
@@ -507,10 +190,14 @@ Press Ctrl-C to stop cleanly — the current segment is finalized before exit.
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`generate_version.py`     | PlatformIO pre-script: reads version from `pyproject.toml` → `src/_version.h` |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`embed_static.py`         | PlatformIO pre-script: embeds `src/static/*` into firmware                    |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`prepare_config.py`       | PlatformIO pre-script: merges config files → `src/_config.json`               |
-| `fake_server.py`                                              | Development HTTP server (no hardware needed)                                  |
-| `video_saver.py`                                              | MJPEG/timelapse recorder → H.264 MP4                                          |
-| `format.sh`                                                   | Formats C++, JS/HTML/CSS, Python, and Markdown                                |
-| `checks.sh`                                                   | Lints and type-checks JS/HTML/CSS and Python                                  |
+| `docs/`                                                       | Documentation pages                                                           |
+| `helpers/`                                                    | One-off maintenance scripts                                                   |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`generate_logo_png.py`    | Re-generate `logo.png` from `logo.svg` (run when the SVG logo changes)        |
+| [`fake_server.py`](docs/development.md)                       | Development HTTP server (no hardware needed)                                  |
+| [`video_saver.py`](docs/video-saver.md)                       | MJPEG/timelapse recorder → H.264 MP4                                          |
+| [`cameras_hub.py`](docs/cameras-hub.md)                       | Standalone Cameras Hub server (no device needed)                              |
+| `format.py`                                                   | Formats C++, JS/HTML/CSS, Python, and Markdown                                |
+| `checks.py`                                                   | Lints and type-checks JS/HTML/CSS and Python (`--fix` to auto-fix)            |
 | `platformio.ini`                                              | PlatformIO project configuration                                              |
 | `LICENSE`                                                     | MIT License                                                                   |
 
@@ -518,17 +205,10 @@ Press Ctrl-C to stop cleanly — the current segment is finalized before exit.
 
 ## Development
 
-**Format** — clang-format (C++), Biome (JS/HTML/CSS), ruff (Python), prettier (Markdown):
+Format (clang-format, Biome, ruff, prettier) and check (Biome, ruff, mypy) with `./format.py` and `./checks.py`. Pass
+`--fix` to `checks.py` to auto-fix lint and formatting issues.
 
-```sh
-./format.sh
-```
-
-**Check** — Biome lint (JS/HTML/CSS), ruff check (Python), mypy (Python):
-
-```sh
-./checks.sh
-```
+→ [Development guide](docs/development.md)
 
 ---
 

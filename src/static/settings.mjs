@@ -1,4 +1,5 @@
-const PRESETS_KEY = "camera_presets";
+const PRESETS_KEY = "presets";
+
 import { getPageOptions, patchPageOptions } from "/page_options.mjs";
 
 const DEFAULTS = {
@@ -48,8 +49,8 @@ const DISPLAY_ONLY = new Set(["rotate"]);
 export class Settings {
   constructor(pageType, { onSettingsChanged = null, onApplyRotation = null, onPageReady = null } = {}) {
     this._pageType = pageType;
-    this._storageKey = `camera_settings_${pageType}`;
-    this._resKey = `camera_res_${pageType}`;
+    this._storageKey = `${pageType}.settings`;
+    this._resKey = `${pageType}.res`;
     this._defaultRes = pageType === "photo" ? "UXGA" : "VGA";
     this._defaults = { ...DEFAULTS, quality: pageType === "photo" ? 4 : 12 };
     this._onSettingsChanged = onSettingsChanged;
@@ -249,7 +250,7 @@ export class Settings {
   }
 
   _updateUrlDisplay() {
-    const el = document.getElementById("url-display");
+    const el = document.getElementById("urlDisplay");
     if (!el) {
       return;
     }
@@ -361,7 +362,7 @@ export class Settings {
   }
 
   _renderPresets() {
-    const container = document.getElementById("presets-list");
+    const container = document.getElementById("presetsList");
     if (!container) {
       return;
     }
@@ -376,7 +377,7 @@ export class Settings {
       load.addEventListener("click", () => this._loadPreset(i));
       const del = document.createElement("button");
       del.type = "button";
-      del.className = "reset-btn";
+      del.className = "icon-btn";
       del.innerHTML = "&times;";
       del.title = "Delete";
       del.addEventListener("click", () => this._deletePreset(i));
@@ -388,8 +389,8 @@ export class Settings {
   // --- Panel open/close state ---
 
   _savePageOptions() {
-    const sd = document.getElementById("settings-details");
-    const ad = document.getElementById("settings-adv-details");
+    const sd = document.getElementById("settingsDetails");
+    const ad = document.getElementById("settingsAdvDetails");
     patchPageOptions({
       settingsOpen: sd ? sd.open : false,
       advOpen: ad ? ad.open : false,
@@ -398,8 +399,8 @@ export class Settings {
 
   _loadPageOptions() {
     const opts = getPageOptions();
-    const sd = document.getElementById("settings-details");
-    const ad = document.getElementById("settings-adv-details");
+    const sd = document.getElementById("settingsDetails");
+    const ad = document.getElementById("settingsAdvDetails");
     if (sd) {
       sd.open = !!opts.settingsOpen;
     }
@@ -411,12 +412,12 @@ export class Settings {
   // --- Hint modal ---
 
   _showHint(btn) {
-    document.getElementById("hint-text").textContent = btn.title;
-    document.getElementById("hint-overlay").style.display = "flex";
+    document.getElementById("hintText").textContent = btn.title;
+    document.getElementById("hintOverlay").style.display = "flex";
   }
 
   _closeHint() {
-    document.getElementById("hint-overlay").style.display = "none";
+    document.getElementById("hintOverlay").style.display = "none";
   }
 
   // --- Settings panel HTML generation ---
@@ -432,7 +433,7 @@ export class Settings {
   _resetBtn(id) {
     const def = this._defaults[id];
     const tip = typeof def === "boolean" ? (def ? "Reset to on" : "Reset to off") : `Reset to ${def}`;
-    return `<button type="button" class="reset-btn" data-reset-id="${id}" title="${tip}">↺</button>`;
+    return `<button type="button" class="icon-btn" data-reset-id="${id}" title="${tip}">↺</button>`;
   }
 
   _rangeCtrl(id, label, min, max, indented, hint) {
@@ -471,7 +472,7 @@ export class Settings {
     <div class="ctrl${cls}">
       <div class="ctrl-header">
         <span>${label}</span>
-        <span class="ctrl-actions"><button type="button" class="reset-btn" data-reset-id="${id}" title="Reset to ${defLabel}">↺</button>${this._hintBtn(hint)}</span>
+        <span class="ctrl-actions"><button type="button" class="icon-btn" data-reset-id="${id}" title="Reset to ${defLabel}">↺</button>${this._hintBtn(hint)}</span>
       </div>
       <select class="ctrl-select" id="${id}">${opts}</select>
     </div>`;
@@ -486,13 +487,13 @@ export class Settings {
       { v: "4", l: "Home" },
     ];
     return `
-    <div id="hint-overlay">
-      <div id="hint-modal">
-        <p id="hint-text"></p>
+    <div id="hintOverlay">
+      <div id="hintModal">
+        <p id="hintText"></p>
         <button type="button" class="hint-close">✕</button>
       </div>
     </div>
-    <details id="settings-details">
+    <details id="settingsDetails">
       <summary>Settings</summary>
       <div class="settings-grid">
         ${this._rangeCtrl(
@@ -530,7 +531,7 @@ export class Settings {
           "Rotate the displayed image. Useful when the camera is mounted sideways or upside-down. Not sent to the camera.",
         )}
       </div>
-      <details id="settings-adv-details">
+      <details id="settingsAdvDetails">
         <summary class="adv-summary">Advanced</summary>
         <div class="settings-grid">
           ${this._checkCtrl("hmirror", "H-mirror", "Mirror the image left-to-right.")}
@@ -644,16 +645,16 @@ export class Settings {
           )}
           ${this._checkCtrl("colorbar", "Colorbar test", "Replace the live image with a colour bar test pattern.")}
         </div>
-        <input type="text" id="url-display" class="url-display" readonly />
+        <input type="text" id="urlDisplay" class="url-display" readonly />
       </details>
       <div class="settings-save-bar">
-        <button type="button" id="save-preset-btn">+ Save preset</button>
+        <button type="button" id="savePiconBtn">+ Save preset</button>
       </div>
     </details>
     <div class="settings-footer">
-      <button type="button" id="reset-all-btn">Reset all</button>
+      <button type="button" id="resetAllBtn">Reset all</button>
       <span class="presets-bar">
-        <span id="presets-list"></span>
+        <span id="presetsList"></span>
       </span>
     </div>`;
   }
@@ -662,10 +663,10 @@ export class Settings {
 
   _attachSettingsListeners(container) {
     // Hint overlay: click outside modal closes it; modal stops propagation; close button closes it.
-    const overlay = container.querySelector("#hint-overlay");
+    const overlay = container.querySelector("#hintOverlay");
     if (overlay) {
       overlay.addEventListener("click", () => this._closeHint());
-      container.querySelector("#hint-modal")?.addEventListener("click", e => e.stopPropagation());
+      container.querySelector("#hintModal")?.addEventListener("click", e => e.stopPropagation());
       container.querySelector(".hint-close")?.addEventListener("click", () => this._closeHint());
     }
 
@@ -707,23 +708,27 @@ export class Settings {
       });
     });
 
-    container.querySelector("#save-preset-btn")?.addEventListener("click", () => this._savePreset());
-    container.querySelector("#reset-all-btn")?.addEventListener("click", () => this._resetAll());
+    container.querySelector("#savePiconBtn")?.addEventListener("click", () => this._savePreset());
+    container.querySelector("#resetAllBtn")?.addEventListener("click", () => this._resetAll());
 
-    const urlDisplay = container.querySelector("#url-display");
+    const urlDisplay = container.querySelector("#urlDisplay");
     if (urlDisplay) {
-      urlDisplay.addEventListener("click", () => urlDisplay.select());
+      urlDisplay.addEventListener("click", () => {
+        if (urlDisplay.selectionStart === urlDisplay.selectionEnd) {
+          urlDisplay.select();
+        }
+      });
     }
   }
 
   _onDOMReady() {
-    const container = document.getElementById("settings-container");
+    const container = document.getElementById("settingsContainer");
     if (container) {
       container.innerHTML = this._buildSettingsHTML();
       this._attachSettingsListeners(container);
       this._syncDependents(); // apply initial greyed state before any further overrides
-      // The footer must be a direct child of #settings-area (not inside the
-      // scrolling #settings-container) so it stays pinned at the bottom on
+      // The footer must be a direct child of #settingsArea (not inside the
+      // scrolling #settingsContainer) so it stays pinned at the bottom on
       // desktop.  Move it up one level after injection.
       const footer = container.querySelector(".settings-footer");
       const settingsArea = container.parentElement;
@@ -735,8 +740,8 @@ export class Settings {
     this._loadSettings();
     this._updateUrlDisplay();
     this._loadPageOptions();
-    const sd = document.getElementById("settings-details");
-    const ad = document.getElementById("settings-adv-details");
+    const sd = document.getElementById("settingsDetails");
+    const ad = document.getElementById("settingsAdvDetails");
     if (sd) {
       sd.addEventListener("toggle", () => this._savePageOptions());
     }
@@ -752,7 +757,7 @@ export class Settings {
     if (resEl) {
       resEl.addEventListener("change", () => this._restart());
     }
-    const resResetBtn = document.getElementById("res-reset");
+    const resResetBtn = document.getElementById("resReset");
     if (resResetBtn) {
       const defaultOpt = resEl ? Array.from(resEl.options).find(o => o.value === this._defaultRes) : null;
       resResetBtn.title = `Reset to ${defaultOpt ? defaultOpt.text : this._defaultRes}`;

@@ -8,4 +8,5 @@
 bool authCheck(const String& authHeader);
 
 // Sends 401 Unauthorized with a WWW-Authenticate challenge and closes the connection.
-void authDeny(WiFiClient& client);
+// Adds CORS headers when origin is non-empty.
+void authDeny(WiFiClient& client, const String& origin);

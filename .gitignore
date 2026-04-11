@@ -2,6 +2,7 @@
 /src/_static_files.h
 /src/_version.h
 /src/static/logo.svg
+/src/static/logo.png
 
 /.pio
 /.vscode

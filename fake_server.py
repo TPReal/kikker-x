@@ -33,10 +33,13 @@ import re
 import socket
 import sys
 import time
+import tomllib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from typing import Any
 from urllib.parse import urlparse, parse_qs
+
+from pylib import PUBLIC_FILES
 
 try:
     from PIL import Image, ImageDraw, ImageFilter, ImageChops
@@ -61,6 +64,9 @@ _features: dict[str, Any] = {"board": "KikkerX (dev server)", "led": True, "batt
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(SCRIPT_DIR, "src", "static")
+
+with open(os.path.join(SCRIPT_DIR, "pyproject.toml"), "rb") as _f:
+    _FIRMWARE_VERSION: str = tomllib.load(_f)["project"]["version"]
 
 # ---------------------------------------------------------------------------
 # config.json loader
@@ -91,6 +97,8 @@ def _load_config() -> dict[str, Any]:
 
 
 _CONFIG = _load_config()
+
+_DEVICE_ID = "c0ffeefacade"
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +327,7 @@ def _make_pond_jpeg(width: int, height: int, t: float) -> bytes:
     # ------------------------------------------------------------------ #
     # HUD overlay                                                        #
     # ------------------------------------------------------------------ #
-    label = f"KikkerX  {width}\u00d7{height}  {time.strftime('%H:%M:%S')}"
+    label = f"KikkerX  {width}x{height}  {time.strftime('%H:%M:%S')}"
     draw.text((8, 8), label, fill=(180, 200, 200))
 
     buf = io.BytesIO()
@@ -437,7 +445,7 @@ def _make_synthwave_jpeg(width: int, height: int, t: float) -> bytes:
     # ------------------------------------------------------------------ #
     # HUD overlay                                                        #
     # ------------------------------------------------------------------ #
-    label = f"KikkerX  {width}\u00d7{height}  {time.strftime('%H:%M:%S')}"
+    label = f"KikkerX  {width}x{height}  {time.strftime('%H:%M:%S')}"
     draw.text((8, 8), label, fill=(210, 80, 255))
 
     buf = io.BytesIO()
@@ -507,7 +515,7 @@ def _make_julia_jpeg(width: int, height: int, t: float) -> bytes:
     img = ImageChops.add(img, glow)
 
     draw = ImageDraw.Draw(img)
-    label = f"KikkerX  {width}\u00d7{height}  {time.strftime('%H:%M:%S')}"
+    label = f"KikkerX  {width}x{height}  {time.strftime('%H:%M:%S')}"
     draw.text((8, 8), label, fill=(160, 255, 180))
 
     buf = io.BytesIO()
@@ -686,18 +694,242 @@ def _make_3d_jpeg(width: int, height: int, t: float) -> bytes:
     img = ImageChops.add(img, ImageChops.multiply(glow, Image.new("RGB", img.size, (72, 66, 52))))
 
     draw = ImageDraw.Draw(img)
-    draw.text((8, 8), f"KikkerX  {width}\u00d7{height}  {time.strftime('%H:%M:%S')}", fill=(138, 128, 100))
+    draw.text((8, 8), f"KikkerX  {width}x{height}  {time.strftime('%H:%M:%S')}", fill=(138, 128, 100))
 
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=85)
     return buf.getvalue()
 
 
-def _make_black_jpeg(width: int, height: int, t: float) -> bytes:
-    """Return JPEG bytes: black frame with info text only (brightness=-2, reserved)."""
-    img = Image.new("RGB", (width, height), (0, 0, 0))
+# ---------------------------------------------------------------------------
+# Image generation — "Aurora Borealis" (brightness = −2)
+# ---------------------------------------------------------------------------
+
+# Constellation definitions with astronomically-correct relative star positions.
+# Coordinates derived from catalogued RA/Dec, centred on a reference star and
+# normalised so the constellation fits roughly within ±1.
+# Convention: x increases westward (right in sky view), y increases southward (down in image).
+# Star tuple: (local_x, local_y, brightness 0–1, (R, G, B) colour tint).
+# Lines: list of (star_index_a, star_index_b) pairs.
+# cx, cy: placement as fraction of (image width, sky height); scale: fraction of image height.
+_AURORA_CONSTELLATIONS: list[dict] = [
+    {  # Ursa Major — Big Dipper; upper-right sky.
+        # Ref star: Megrez.  Handle arcs leftward with a characteristic downward curve.
+        "stars": [
+            (0.98, -0.30, 0.70, (225, 230, 255)),  # Dubhe   (K-type, warm tint; pointer star)
+            (1.00, -0.04, 0.65, (215, 225, 255)),  # Merak   (pointer to Polaris)
+            (0.37, 0.09, 0.65, (215, 225, 255)),  # Phecda
+            (0.11, -0.07, 0.55, (215, 225, 255)),  # Megrez  (faintest of the seven)
+            (-0.35, -0.02, 0.75, (200, 215, 255)),  # Alioth  (brightest in Ursa Major)
+            (-0.71, 0.03, 0.65, (215, 225, 255)),  # Mizar
+            (-1.00, 0.30, 0.70, (215, 225, 255)),  # Alkaid  (end of handle)
+        ],
+        "lines": [(0, 1), (1, 2), (2, 3), (3, 0), (3, 4), (4, 5), (5, 6)],
+        "cx": 0.76,
+        "cy": 0.13,
+        "scale": 0.13,
+    },
+    {  # Cassiopeia — upper-left sky (W shape).
+        # Ref star: Gamma Cas (centre of W).  Schedar has a slight orange K-type tint.
+        "stars": [
+            (1.00, 0.07, 0.75, (205, 220, 255)),  # Caph
+            (0.40, 0.27, 0.70, (255, 215, 195)),  # Schedar  (K-type, slight warm tint)
+            (0.10, -0.05, 0.65, (215, 225, 255)),  # Gamma Cas
+            (-0.45, -0.01, 0.65, (215, 225, 255)),  # Ruchbah
+            (-1.00, -0.27, 0.60, (215, 225, 255)),  # Segin
+        ],
+        "lines": [(0, 1), (1, 2), (2, 3), (3, 4)],
+        "cx": 0.12,
+        "cy": 0.11,
+        "scale": 0.11,
+    },
+    {  # Orion — lower-centre sky (straddles the aurora band).
+        # Ref star: centroid of all seven.  Belt tilts slightly upper-right to lower-left.
+        "stars": [
+            (-0.60, -1.00, 0.90, (255, 155, 105)),  # Betelgeuse  (M-type red supergiant)
+            (0.28, -0.88, 0.70, (205, 215, 255)),  # Bellatrix
+            (-0.17, 0.09, 0.60, (210, 220, 255)),  # Alnitak   (belt, easternmost)
+            (-0.04, 0.01, 0.65, (215, 225, 255)),  # Alnilam   (belt, centre)
+            (0.08, -0.10, 0.55, (210, 220, 255)),  # Mintaka   (belt, westernmost)
+            (0.60, 0.83, 0.90, (175, 200, 255)),  # Rigel     (B-type blue supergiant)
+            (-0.38, 1.00, 0.60, (210, 220, 255)),  # Saiph
+        ],
+        "lines": [(0, 1), (0, 2), (1, 4), (2, 3), (3, 4), (2, 6), (4, 5)],
+        "cx": 0.30,
+        "cy": 0.54,
+        "scale": 0.12,
+    },
+    {  # Lyra — compact; Vega is the 5th-brightest star in the night sky.
+        # Ref star: Vega.  A small parallelogram of four stars hangs below.
+        "stars": [
+            (0.00, 0.00, 0.95, (215, 225, 255)),  # Vega      (A0 V, magnitude 0.0)
+            (-0.56, -0.14, 0.42, (215, 225, 255)),  # Epsilon Lyrae (famous double-double)
+            (-0.76, 0.30, 0.43, (215, 225, 255)),  # Delta Lyrae
+            (-0.55, 0.90, 0.45, (215, 225, 255)),  # Sheliak   (Beta Lyrae)
+            (-0.92, 1.02, 0.42, (215, 225, 255)),  # Sulafat   (Gamma Lyrae)
+        ],
+        "lines": [(0, 1), (0, 2), (1, 2), (1, 3), (2, 4), (3, 4)],
+        "cx": 0.55,
+        "cy": 0.34,
+        "scale": 0.08,
+    },
+]
+
+
+def _make_aurora_jpeg(width: int, height: int, t: float) -> bytes:
+    """
+    Returns JPEG bytes: aurora borealis with real star constellations.
+
+    Sky: deep navy gradient to horizon.  Aurora: five overlapping curtains each
+    rendered as a Gaussian stripe whose centre undulates as a sum of two
+    incommensurate sines — this gives an organic, non-repeating draping look.
+    Treeline silhouette (fixed-seed random pines) fills the bottom quarter.
+    Star field includes Ursa Major (Big Dipper), Cassiopeia, Orion, and Lyra
+    at astronomically-correct relative positions.
+    """
+    sky_h = int(height * 0.74)  # sky occupies the top 74 %
+
+    # ------------------------------------------------------------------ #
+    # Background: deep navy darkening upward, slight warm teal at the   #
+    # horizon (atmospheric colour scatter).                              #
+    # ------------------------------------------------------------------ #
+    fy = np.linspace(0.0, 1.0, sky_h, dtype=np.float32)  # 0 = top, 1 = horizon
+    sky = np.zeros((sky_h, width, 3), dtype=np.float32)
+    sky[:, :, 0] = (2 + 8 * fy)[:, np.newaxis]
+    sky[:, :, 1] = (4 + 14 * fy)[:, np.newaxis]
+    sky[:, :, 2] = (15 + 25 * fy)[:, np.newaxis]
+
+    # ------------------------------------------------------------------ #
+    # Aurora curtains (fully vectorised).                                #
+    # Each curtain: centre-Y per column = sum of two incommensurate      #
+    # sines → organic, non-periodic draping.  Sigma also varies along x #
+    # so the curtain width is uneven, like the real thing.              #
+    # ------------------------------------------------------------------ #
+    xs = np.linspace(0.0, 1.0, width, dtype=np.float32)  # (W,)
+    ys = np.arange(sky_h, dtype=np.float32).reshape(-1, 1)  # (sky_h, 1)
+
+    # Each row: base_y_frac, sigma_frac, (R,G,B),
+    #           f1, a1, p1,  f2, a2, p2,  pulse_speed, pulse_phase
+    CURTAINS = [
+        (0.32, 0.040, (0, 240, 120), 3.1, 0.070, 0.00, 7.3, 0.030, 0.50, 0.42, 0.00),
+        (0.24, 0.028, (100, 40, 255), 2.6, 0.055, 2.10, 5.7, 0.025, 1.30, 0.34, 2.10),
+        (0.38, 0.032, (0, 200, 240), 4.4, 0.060, 4.30, 9.1, 0.022, 2.10, 0.38, 4.30),
+        (0.28, 0.022, (180, 0, 220), 3.7, 0.048, 1.50, 6.4, 0.018, 0.80, 0.28, 1.50),
+        (0.42, 0.018, (0, 255, 180), 5.2, 0.035, 3.20, 8.3, 0.015, 3.70, 0.46, 3.20),
+    ]
+
+    aurora = np.zeros((sky_h, width, 3), dtype=np.float32)
+    for base_y_frac, sigma_frac, color, f1, a1, p1, f2, a2, p2, ps, pp in CURTAINS:
+        base_y = base_y_frac * sky_h
+        sigma_base = sigma_frac * sky_h
+        cy = (
+            base_y
+            + a1 * sky_h * np.sin(f1 * math.tau * xs + t * 0.18 + p1)
+            + a2 * sky_h * np.sin(f2 * math.tau * xs + t * 0.10 + p2)
+        )
+        sigma = np.maximum(
+            sigma_base * (0.7 + 0.6 * np.sin(math.tau * 2.8 * xs + t * 0.08 + pp * 0.7)),
+            sky_h * 0.008,
+        )
+        brightness = np.exp(-0.5 * ((ys - cy.reshape(1, -1)) / sigma.reshape(1, -1)) ** 2)
+        pulse = 0.55 + 0.45 * math.sin(t * ps + pp)
+        for ch, c in enumerate(color):
+            aurora[:, :, ch] += brightness * (c / 255.0) * 160.0 * pulse
+
+    # ------------------------------------------------------------------ #
+    # Stars — drawn additively into sky before aurora blend, so aurora  #
+    # overlays naturally (no dark-dot artefacts).  All stars drift      #
+    # leftward (simulated Earth rotation, full traverse ~10 min).       #
+    # Background stars: sub-pixel antialiased by splitting brightness   #
+    # across the two straddled x-pixels.                                #
+    # Constellation stars: soft numpy Gaussian at exact float coords    #
+    # for smooth sub-pixel motion.                                      #
+    # ------------------------------------------------------------------ #
+    drift = (t / 600.0) % 1.0
+    drift_px = drift * width
+
+    r_scale = max(1.0, height / 480.0)
+
+    bg_rng = random.Random(9001)
+    bg_stars = [(bg_rng.random(), bg_rng.random(), bg_rng.uniform(0.2, 1.1), bg_rng.random()) for _ in range(200)]
+    for x_frac, y_frac, tw_speed, tw_phase in bg_stars:
+        x_exact = ((x_frac + drift) % 1.0) * width
+        sy = int(y_frac * sky_h * 0.88)
+        if not (0 <= sy < sky_h):
+            continue
+        sx0 = int(x_exact)
+        frac = x_exact - sx0
+        twinkle = 0.5 + 0.5 * math.sin(t * tw_speed + tw_phase * math.tau)
+        brt = (25.0 + 80.0 * twinkle) * r_scale
+        for s_x, w in ((sx0 % width, 1.0 - frac), ((sx0 + 1) % width, frac)):
+            sky[sy, s_x, 0] += brt * w
+            sky[sy, s_x, 1] += brt * w
+            sky[sy, s_x, 2] += (brt + 15.0) * w  # slight blue tint
+    for const in _AURORA_CONSTELLATIONS:
+        cx_px = (const["cx"] * width + drift_px) % width
+        cy_px = const["cy"] * sky_h
+        sc = const["scale"] * height
+        for lx, ly, brt_frac, color in const["stars"]:
+            x_c = cx_px + lx * sc
+            y_c = cy_px + ly * sc
+            if not (0 <= y_c < sky_h):
+                continue
+            sigma = max(0.5, brt_frac * 1.6 * r_scale)
+            pr = max(2, int(sigma * 3))
+            xi, yi = int(x_c), int(y_c)
+            for row in range(-pr, pr + 1):
+                py = yi + row
+                if not (0 <= py < sky_h):
+                    continue
+                for col in range(-pr, pr + 1):
+                    px = (xi + col) % width
+                    w = math.exp(-0.5 * ((xi + col - x_c) ** 2 + (py - y_c) ** 2) / sigma**2)
+                    sky[py, px, 0] += color[0] * brt_frac * w * 0.9
+                    sky[py, px, 1] += color[1] * brt_frac * w * 0.9
+                    sky[py, px, 2] += color[2] * brt_frac * w * 0.9
+
+    aurora_img = Image.fromarray(np.clip(aurora, 0, 255).astype(np.uint8))
+    aurora_img = aurora_img.filter(ImageFilter.GaussianBlur(radius=max(1, width // 90)))
+    sky = np.clip(sky + np.array(aurora_img, dtype=np.float32), 0, 255)
+
+    # ------------------------------------------------------------------ #
+    # Assemble full frame (sky + black ground) and convert to PIL        #
+    # ------------------------------------------------------------------ #
+    frame = np.zeros((height, width, 3), dtype=np.uint8)
+    frame[:sky_h] = sky.astype(np.uint8)
+    img = Image.fromarray(frame)
+
+    # ------------------------------------------------------------------ #
+    # Treeline silhouette — fixed-seed random pine trees                 #
+    # ------------------------------------------------------------------ #
+    tree_rng = random.Random(31415)
+    n_trees = max(12, width // 16)
+    trees = [
+        (
+            tree_rng.random() * width,
+            (0.038 + tree_rng.random() * 0.052) * height,
+            (0.018 + tree_rng.random() * 0.022) * width,
+        )
+        for _ in range(n_trees)
+    ]
+    ground_base = int(height * 0.80)
+    xs_arr = np.arange(width, dtype=np.float32)
+    treeline = np.zeros(width, dtype=np.float32)
+    for tx, th, tw in trees:
+        treeline = np.maximum(treeline, th * np.maximum(0.0, 1.0 - np.abs(xs_arr - tx) / tw))
+
+    top_ys = np.maximum(0, ground_base - treeline.astype(np.int32))
+    mask = np.arange(height).reshape(-1, 1) >= top_ys.reshape(1, -1)
+    img_arr = np.array(img)
+    img_arr[mask] = 0
+    img = Image.fromarray(img_arr)
+
+    # ------------------------------------------------------------------ #
+    # HUD                                                                #
+    # ------------------------------------------------------------------ #
     draw = ImageDraw.Draw(img)
-    draw.text((8, 8), f"KikkerX  {width}\u00d7{height}  {time.strftime('%H:%M:%S')}", fill=(60, 60, 60))
+    draw.text((8, 8), f"KikkerX  {width}x{height}  {time.strftime('%H:%M:%S')}", fill=(120, 180, 160))
+
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=85)
     return buf.getvalue()
@@ -705,7 +937,7 @@ def _make_black_jpeg(width: int, height: int, t: float) -> bytes:
 
 # Direct mapping from OV3660 brightness value (−2 … +2) to scene function.
 _SCENE_FUNCS = {
-    -2: _make_black_jpeg,  # (reserved — black)
+    -2: _make_aurora_jpeg,  # Aurora Borealis
     -1: _make_3d_jpeg,  # Armillary Sphere (wireframe)
     0: _make_pond_jpeg,  # Kikker's Pond at Night
     1: _make_synthwave_jpeg,  # Retrowave Grid
@@ -734,15 +966,31 @@ class KikkerXHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"  {self.address_string()}  {fmt % args}")
 
+    def end_headers(self) -> None:
+        origin = self.headers.get("Origin", "")
+        if origin and _CONFIG.get("allow_cors", True):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Headers", "Authorization")
+            self.send_header("Vary", "Origin")
+        super().end_headers()
+
     def _deny_auth(self) -> None:
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="KikkerX"')
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        if _CONFIG.get("allow_cors", True):
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH")
+            self.send_header("Access-Control-Max-Age", "86400")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path != "/manifest.json" and not _check_auth(self):
+        if parsed.path.lstrip("/") not in PUBLIC_FILES and not _check_auth(self):
             self._deny_auth()
             return
         path = parsed.path
@@ -816,15 +1064,30 @@ class KikkerXHandler(BaseHTTPRequestHandler):
                 self._send_json(data)
             else:
                 data = {
-                    "id": "c0ffeefacade",
+                    "id": _DEVICE_ID,
                     "wifi": {"mode": "station", "ssid": ssid, "ip": "192.168.1.99", "rssi": rssi},
                     "camera": "kikker-x",
-                    "version": "1.0.0",
+                    "version": _FIRMWARE_VERSION,
                     "features": _features,
                 }
                 if _features["battery"]:
                     data["battery"] = {"voltage": voltage, "level": level}
                 self._send_json(data)
+
+        elif path == "/api/hub/status":
+            self._send_json({"isStandalone": False, "store": {"read": True}})
+
+        elif path == "/api/hub/store":
+            # "SELF" is a self-reference marker: replaced by the hub with window.location.origin.
+            auth_user = (_CONFIG.get("auth") or {}).get("username")
+            auth_id = f"auth-{_DEVICE_ID}"
+            self._send_json(
+                {
+                    "version": 1,
+                    "cameras": [{"url": "SELF", "type": "kikker-x", **({"authId": auth_id} if auth_user else {})}],
+                    "auths": [{"id": auth_id, "username": auth_user}] if auth_user else [],
+                }
+            )
 
         elif path == "/api/led":
             if not _features["led"]:

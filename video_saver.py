@@ -13,8 +13,6 @@ Requirements:
 
 import argparse
 import datetime
-import getpass
-import urllib.parse
 import shutil
 import signal
 import subprocess
@@ -22,15 +20,12 @@ import sys
 import threading
 import time
 import types
+import urllib.parse
 from collections.abc import Iterator
 from pathlib import Path
 
-try:
-    import requests
-except ImportError as e:
-    print(f"Error: {e}")
-    sys.exit("Package not installed. Run:  uv run video_saver.py")
-
+import requests
+from pylib import resolve_password
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -237,7 +232,8 @@ def parse_args() -> argparse.Namespace:
         "--auth-password",
         default=None,
         metavar="PASS",
-        help="HTTP Basic auth password (omit to be prompted; note: visible in process list if passed here).",
+        help="HTTP Basic auth password. Use @FILE to read from a file, @- to read from stdin."
+        " Omit to be prompted if stdin is a tty.",
     )
     p.add_argument(
         "--status-url",
@@ -827,9 +823,9 @@ def main() -> None:
         if args.fps_cap is not None:
             sys.exit("--fps-cap is not allowed for timelapse URLs (got image/jpeg).")
 
-    if args.auth_user and not args.auth_password:
-        args.auth_password = getpass.getpass(f"Password for {args.auth_user}: ")
-    auth: tuple[str, str] | None = (args.auth_user, args.auth_password or "") if args.auth_user else None
+    auth: tuple[str, str] | None = None
+    if args.auth_user:
+        auth = (args.auth_user, resolve_password(args.auth_password, args.auth_user))
 
     mode, probe_resp = probe_url(args.url, auth, args.connect_timeout)
     log(f"Detected mode    : {mode}")

@@ -1,16 +1,17 @@
+import { docElem } from "/util.mjs";
+
 function load() {
   fetch("/api/logs")
     .then(r => r.text())
     .then(t => {
-      const log = document.getElementById("log");
-      log.textContent = t;
-      document.getElementById("status").textContent = `${t.length} bytes`;
-      log.scrollTop = log.scrollHeight;
+      docElem.log.textContent = t;
+      docElem.status.textContent = `${t.length} bytes`;
+      docElem.log.scrollTop = docElem.log.scrollHeight;
     })
     .catch(() => {
-      document.getElementById("status").textContent = "Error";
+      docElem.status.textContent = "Error";
     });
 }
 
 load();
-document.getElementById("refresh-btn").addEventListener("click", load);
+docElem.refreshBtn.addEventListener("click", load);

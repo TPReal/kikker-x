@@ -1,0 +1,392 @@
+body {
+  overflow-y: auto;
+}
+#toast {
+  position: fixed;
+  inset: auto;
+  bottom: 20px;
+  right: 20px;
+  margin: 0;
+  background: #2a2a2a;
+  color: #ccc;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+#toast.fade {
+  opacity: 0;
+}
+.manage-wrap {
+  position: relative;
+}
+#manageMenu {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: calc(100% - 1px);
+  right: 0;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 4px 0;
+  z-index: 100;
+  min-width: 160px;
+}
+#manageMenu button {
+  text-align: left;
+  padding: 6px 14px;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  font: inherit;
+  width: 100%;
+}
+#manageMenu button:hover {
+  background: #333;
+}
+.menu-chk-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.menu-chk-label input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border: 1px solid #666;
+  border-radius: 2px;
+  background: #1e1e1e;
+  cursor: pointer;
+}
+.menu-chk-label input[type="checkbox"]:checked {
+  border-color: #aaa;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 5l3 3 5-5' stroke='%23fff' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
+}
+.menu-chk-label:hover {
+  background: #333;
+}
+.menu-sep {
+  border: none;
+  border-top: 1px solid #333;
+  margin: 4px 0;
+}
+#camGrid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0;
+  padding: 6px;
+}
+.empty-msg {
+  color: #666;
+  padding: 4px 0;
+}
+.cam-card {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 6px;
+  width: 275px;
+  margin: 6px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.cam-thumb-wrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  border-radius: 5px 5px 0 0;
+}
+.cam-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.cam-error {
+  position: absolute;
+  color: #f88;
+  font-size: 13px;
+}
+.cam-spinner {
+  position: absolute;
+  inset: 0;
+  width: 28px;
+  height: 28px;
+  margin: auto;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.cam-info {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cam-name {
+  font-size: 13px;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cam-dup-warning {
+  font-size: 11px;
+  color: #f80;
+}
+.cam-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+}
+.cam-links a {
+  background: #222;
+  color: #aaa;
+  border: 1px solid #444;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.cam-links a:hover {
+  background: #333;
+  color: #fff;
+}
+.cam-auth-section {
+  padding: 8px;
+  border-top: 1px solid #2a2a2a;
+}
+.cam-auth-section form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cam-auth-msg {
+  font-size: 12px;
+  color: #f88;
+}
+.cam-auth-input {
+  background: #111;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 4px 7px;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.cam-auth-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+dialog {
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 300px;
+}
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+dialog h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+#authSelfNote {
+  font-size: 12px;
+  color: #aaa;
+  margin: 0 0 12px;
+  width: 0;
+  min-width: 100%;
+}
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.form-row > label {
+  font-size: 13px;
+  color: #aaa;
+}
+.form-row input[type="url"],
+.form-row input[type="text"],
+.form-row input[type="password"],
+.form-row select {
+  background: #111;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.form-row input:disabled,
+.form-row select:disabled {
+  color: #777;
+  -webkit-text-fill-color: #999;
+  background: #111;
+  border-color: #333;
+  cursor: default;
+  opacity: 1;
+}
+.form-row input:disabled::placeholder {
+  -webkit-text-fill-color: #555;
+}
+.type-row label:has(input[type="radio"]:disabled:not(:checked)) {
+  opacity: 0.3;
+}
+.type-row {
+  display: flex;
+  gap: 16px;
+}
+.type-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #ccc;
+  cursor: pointer;
+}
+.form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.json-textarea {
+  width: 100%;
+  min-height: 180px;
+  background: #111;
+  color: #ddd;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: monospace;
+  resize: vertical;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+}
+.auth-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #222;
+}
+.auth-item:last-child {
+  border-bottom: none;
+}
+.auth-item-info {
+  flex: 1;
+  overflow: hidden;
+}
+.auth-item-name {
+  font-size: 13px;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-item-count {
+  font-size: 11px;
+  color: #666;
+}
+.cam-drag-handle {
+  cursor: grab;
+  color: #555;
+  font-size: 15px;
+  line-height: 1;
+  user-select: none;
+  padding: 0;
+  flex-shrink: 0;
+}
+.cam-status-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #1e5a8a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  font-family: monospace;
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+  flex-shrink: 0;
+}
+.cam-status-btn::before {
+  content: "i";
+}
+.cam-status-btn:hover {
+  background: #2a7abf;
+}
+.cam-status-btn.stale {
+  opacity: 0.4;
+}
+.cam-cors-btn {
+  background: #7a2828;
+}
+.cam-cors-btn:hover {
+  background: #a03333;
+}
+.cam-drag-handle:hover {
+  color: #888;
+}
+.cam-card[draggable="true"] {
+  user-select: none;
+}
+.cam-card.dragging {
+  opacity: 0.4;
+}
+.cam-card.drop-before::before,
+.cam-card.drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: #5c5;
+  border-radius: 1px;
+  z-index: 5;
+}
+.cam-card.drop-before::before {
+  left: -8px;
+}
+.cam-card.drop-after::after {
+  right: -8px;
+}

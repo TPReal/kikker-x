@@ -1,7 +1,6 @@
 import { Settings } from "/settings.mjs";
+import { docElem } from "/util.mjs";
 
-const imgEl = document.getElementById("stream-img");
-const statusEl = document.getElementById("status");
 let retryTimer = null;
 let fpsTimer = null;
 let currentParams = "";
@@ -12,7 +11,7 @@ function startFpsPoll() {
       const resp = await fetch("/api/streamfps");
       const { fps, active } = await resp.json();
       if (active) {
-        statusEl.textContent = `${fps.toFixed(1)} FPS`;
+        docElem.status.textContent = `${fps.toFixed(1)} FPS`;
       }
     } catch (e) {
       // Errors here are expected during reconnect; log at debug level so
@@ -23,7 +22,7 @@ function startFpsPoll() {
 }
 
 function applyRotation() {
-  settings.applyElementRotation(imgEl);
+  settings.applyElementRotation(docElem.streamImg);
 }
 
 function startStream(streamParams) {
@@ -31,33 +30,33 @@ function startStream(streamParams) {
   clearTimeout(retryTimer);
   clearInterval(fpsTimer);
   fpsTimer = null;
-  statusEl.textContent = "⏳";
+  docElem.status.textContent = "⏳";
   // Lock current rendered size before clearing src so the black background
   // fills the same area and the layout doesn't jump.
-  if (imgEl.naturalWidth) {
-    imgEl.style.width = `${imgEl.offsetWidth}px`;
-    imgEl.style.height = `${imgEl.offsetHeight}px`;
+  if (docElem.streamImg.naturalWidth) {
+    docElem.streamImg.style.width = `${docElem.streamImg.offsetWidth}px`;
+    docElem.streamImg.style.height = `${docElem.streamImg.offsetHeight}px`;
   }
   // Clear src so the browser sends a TCP FIN to the old stream immediately,
   // letting the device detect the disconnect and free the camera before the
   // new connection arrives. Hide the element so the broken-image icon doesn't
   // show while src is empty.
-  imgEl.style.visibility = "hidden";
-  imgEl.src = "";
+  docElem.streamImg.style.visibility = "hidden";
+  docElem.streamImg.src = "";
   retryTimer = setTimeout(() => {
-    imgEl.src = `/api/cam/stream.mjpeg${streamParams}&t=${Date.now()}`;
+    docElem.streamImg.src = `/api/cam/stream.mjpeg${streamParams}&t=${Date.now()}`;
   }, 500);
 }
 
-imgEl.addEventListener("load", () => {
-  imgEl.style.width = "";
-  imgEl.style.height = "";
-  imgEl.style.visibility = "";
-  statusEl.textContent = "Live";
+docElem.streamImg.addEventListener("load", () => {
+  docElem.streamImg.style.width = "";
+  docElem.streamImg.style.height = "";
+  docElem.streamImg.style.visibility = "";
+  docElem.status.textContent = "Live";
   applyRotation();
   startFpsPoll();
 });
-imgEl.addEventListener("error", e => {
+docElem.streamImg.addEventListener("error", e => {
   // When src is cleared to '' the browser resolves it to the page URL, which
   // does not contain the stream path — ignore that spurious error event.
   if (!e.target.src.includes("/api/cam/stream.mjpeg")) {
@@ -65,24 +64,24 @@ imgEl.addEventListener("error", e => {
   }
   clearInterval(fpsTimer);
   fpsTimer = null;
-  statusEl.textContent = "reconnecting…";
+  docElem.status.textContent = "reconnecting…";
   retryTimer = setTimeout(() => startStream(currentParams), 2000);
 });
 
-document.getElementById("fs-btn").addEventListener("click", () => {
+docElem.fsBtn.addEventListener("click", () => {
   if (document.fullscreenElement) {
     document.exitFullscreen();
   } else {
-    document.getElementById("canvas-area").requestFullscreen();
+    docElem.canvasArea.requestFullscreen();
   }
 });
 document.addEventListener("fullscreenchange", () => {
-  document.getElementById("fs-btn").textContent = document.fullscreenElement ? "✕" : "⛶";
+  docElem.fsBtn.textContent = document.fullscreenElement ? "✕" : "⛶";
 });
-document.getElementById("refresh-btn").addEventListener("click", () => startStream(settings.params()));
+docElem.refreshBtn.addEventListener("click", () => startStream(settings.params()));
 
 window.addEventListener("resize", () => {
-  if (imgEl.naturalWidth) {
+  if (docElem.streamImg.naturalWidth) {
     applyRotation();
   }
 });
@@ -92,7 +91,7 @@ window.addEventListener("resize", () => {
 window.addEventListener("pagehide", () => {
   clearTimeout(retryTimer);
   clearInterval(fpsTimer);
-  imgEl.src = "";
+  docElem.streamImg.src = "";
 });
 
 const settings = new Settings("video", {

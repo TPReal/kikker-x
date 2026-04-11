@@ -1,7 +1,6 @@
-#include "board.h"
-
 #include <M5TimerCAM.h>
 
+#include "board.h"
 #include "log.h"
 
 BoardFeatures boardFeatures() {

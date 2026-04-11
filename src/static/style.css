@@ -1,6 +1,37 @@
 * {
   box-sizing: border-box;
 }
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: required to override display rules set by other selectors */
+  display: none !important;
+}
+input[type="radio"],
+input[type="checkbox"] {
+  margin: 0;
+}
+input[type="radio"] {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border: 1px solid #666;
+  border-radius: 50%;
+  background: #222;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+input[type="radio"]:checked {
+  background: radial-gradient(circle closest-side, #ccc 60%, #222 60%);
+  border-color: #ccc;
+}
+input[type="radio"]:disabled {
+  cursor: default;
+  border-color: #555;
+  background: #1a1a1a;
+}
+input[type="radio"]:disabled:checked {
+  background: radial-gradient(circle closest-side, #888 60%, #1a1a1a 60%);
+  border-color: #888;
+}
 body {
   margin: 0;
   background: #000;
@@ -15,7 +46,7 @@ canvas {
   height: auto;
   margin: 0 auto;
 }
-#stream-img {
+#streamImg {
   display: block;
   width: fit-content;
   max-width: 100%;
@@ -24,12 +55,13 @@ canvas {
   background: #000;
   margin: 0 auto;
 }
-#canvas-wrap {
+#canvasWrap {
   width: 100%;
 }
 .bar {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: stretch;
   justify-content: space-between;
   gap: 8px;
   padding: 8px;
@@ -44,6 +76,8 @@ canvas {
   font-size: 18px;
   font-weight: bold;
   color: #fff;
+  white-space: nowrap;
+  align-self: center;
 }
 .bar .nav-title a {
   color: #fff;
@@ -58,7 +92,9 @@ canvas {
   background: #222;
   color: #fff;
   border: 1px solid #555;
-  padding: 2px 6px;
+  border-radius: 3px;
+  padding: 0 6px;
+  align-self: stretch;
 }
 button {
   background: #222;
@@ -74,6 +110,27 @@ button:hover {
   background: #333;
   color: #fff;
 }
+.bar button {
+  white-space: nowrap;
+}
+.icon-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 1px 2px;
+  line-height: 1;
+  min-width: 16px;
+  text-align: center;
+}
+.icon-btn:hover {
+  color: #aaa;
+}
+.bar label,
+.bar .icon-btn {
+  align-self: center;
+}
 
 /* Status label used on stream and photo pages */
 #status {
@@ -82,12 +139,12 @@ button:hover {
 }
 
 /* --- Mobile layout: canvas sticks to top, settings scroll beneath --- */
-#main-layout {
+#mainLayout {
   display: flex;
   flex-direction: column;
   align-items: center;
 }
-#canvas-area {
+#canvasArea {
   position: sticky;
   top: 0;
   z-index: 10;
@@ -97,38 +154,38 @@ button:hover {
   flex-direction: column;
   align-items: center;
 }
-#settings-area {
+#settingsArea {
   width: 100%;
   max-width: 960px;
 }
 
 /* --- Desktop: image left, settings panel right --- */
 @media (min-width: 768px) {
-  body:has(#main-layout) {
+  body:has(#mainLayout) {
     height: 100dvh;
     overflow: hidden;
   }
-  #main-layout {
+  #mainLayout {
     flex-direction: row;
     align-items: stretch;
     width: 100%;
     height: 100%;
     overflow: hidden;
   }
-  #canvas-area {
+  #canvasArea {
     position: static;
     flex: 1 1 auto;
     min-width: 0;
     align-items: center;
   }
-  #canvas-wrap {
+  #canvasWrap {
     flex: 1 1 0;
     min-height: 0;
     position: relative;
     overflow: hidden;
   }
   canvas,
-  #stream-img {
+  #streamImg {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -137,7 +194,7 @@ button:hover {
     max-height: 100%;
     height: auto;
   }
-  #settings-area {
+  #settingsArea {
     flex: 0 0 auto;
     width: fit-content;
     height: 100%;
@@ -163,17 +220,17 @@ button:hover {
 }
 /* Desktop: include the centering translate and reset origin */
 @media (min-width: 768px) {
-  #stream-img.rot-90r,
+  #streamImg.rot-90r,
   canvas.rot-90r {
     transform-origin: 50% 50%;
     transform: translate(-50%, -50%) rotate(90deg);
   }
-  #stream-img.rot-90l,
+  #streamImg.rot-90l,
   canvas.rot-90l {
     transform-origin: 50% 50%;
     transform: translate(-50%, -50%) rotate(-90deg);
   }
-  #stream-img.rot-180,
+  #streamImg.rot-180,
   canvas.rot-180 {
     transform: translate(-50%, -50%) rotate(180deg);
   }

@@ -1,13 +1,12 @@
 import { Settings } from "/settings.mjs";
+import { docElem } from "/util.mjs";
 
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-const statusEl = document.getElementById("status");
+const ctx = docElem.canvas.getContext("2d");
 
 let photoInFlight = false;
 
 function applyRotation() {
-  settings.applyElementRotation(canvas);
+  settings.applyElementRotation(docElem.canvas);
 }
 
 let pendingParams = null;
@@ -25,7 +24,7 @@ async function takePhoto(queryString) {
   let qs = queryString;
   while (qs !== null) {
     pendingParams = null;
-    statusEl.textContent = "Capturing...";
+    docElem.status.textContent = "Capturing...";
     try {
       const resp = await fetch(`/api/cam/capture.jpg${qs}&t=${Date.now()}`);
       if (!resp.ok) {
@@ -33,35 +32,35 @@ async function takePhoto(queryString) {
       }
       const blob = await resp.blob();
       const bitmap = await createImageBitmap(blob);
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
+      docElem.canvas.width = bitmap.width;
+      docElem.canvas.height = bitmap.height;
       ctx.drawImage(bitmap, 0, 0);
       bitmap.close();
       applyRotation();
-      statusEl.textContent = "Ready";
+      docElem.status.textContent = "Ready";
     } catch (e) {
       console.error("Photo error:", e);
-      statusEl.textContent = "Error";
+      docElem.status.textContent = "Error";
     }
     qs = pendingParams;
   }
   photoInFlight = false;
 }
 
-document.getElementById("fs-btn").addEventListener("click", () => {
+docElem.fsBtn.addEventListener("click", () => {
   if (document.fullscreenElement) {
     document.exitFullscreen();
   } else {
-    document.getElementById("canvas-area").requestFullscreen();
+    docElem.canvasArea.requestFullscreen();
   }
 });
 document.addEventListener("fullscreenchange", () => {
-  document.getElementById("fs-btn").textContent = document.fullscreenElement ? "✕" : "⛶";
+  docElem.fsBtn.textContent = document.fullscreenElement ? "✕" : "⛶";
 });
-document.getElementById("refresh-btn").addEventListener("click", () => takePhoto(settings.params()));
+docElem.refreshBtn.addEventListener("click", () => takePhoto(settings.params()));
 
 window.addEventListener("resize", () => {
-  if (canvas.width) {
+  if (docElem.canvas.width) {
     applyRotation();
   }
 });

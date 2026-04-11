@@ -63,11 +63,14 @@ bool authCheck(const String& authHeader) {
   return diff == 0;
 }
 
-void authDeny(WiFiClient& client) {
-  client.print(
-      "HTTP/1.1 401 Unauthorized\r\n"
-      "WWW-Authenticate: Basic realm=\"KikkerX\"\r\n"
-      "Connection: close\r\n\r\n");
+void authDeny(WiFiClient& client, const String& origin) {
+  client.print("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"KikkerX\"\r\n");
+  if (origin.length() > 0) {
+    client.print("Access-Control-Allow-Origin: ");
+    client.print(origin);
+    client.print("\r\nVary: Origin\r\n");
+  }
+  client.print("Connection: close\r\n\r\n");
   client.stop();
   Serial.println("→ 401");
 }

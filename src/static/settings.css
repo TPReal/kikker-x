@@ -39,18 +39,6 @@ summary {
 .ctrl-value {
   color: #fff;
 }
-.reset-btn {
-  background: none;
-  border: none;
-  color: #555;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0 2px;
-  line-height: 1;
-}
-.reset-btn:hover {
-  color: #aaa;
-}
 input[type="range"] {
   width: 100%;
   accent-color: #888;
@@ -102,10 +90,10 @@ input[type="checkbox"] {
   details {
     width: auto;
   }
-  #settings-details[open] {
+  #settingsDetails[open] {
     width: 320px;
   }
-  #settings-container {
+  #settingsContainer {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
@@ -115,19 +103,19 @@ input[type="checkbox"] {
     position: static;
     flex-shrink: 0;
   }
-  #settings-details > summary {
+  #settingsDetails > summary {
     writing-mode: vertical-rl;
     padding: 12px 8px;
   }
-  #settings-details[open] > summary {
+  #settingsDetails[open] > summary {
     writing-mode: horizontal-tb;
     padding: 8px 12px;
   }
-  #settings-area:not(:has(#settings-details[open])) .settings-footer {
+  #settingsArea:not(:has(#settingsDetails[open])) .settings-footer {
     flex-direction: column;
     align-items: flex-start;
   }
-  #settings-area:not(:has(#settings-details[open])) .presets-bar {
+  #settingsArea:not(:has(#settingsDetails[open])) .presets-bar {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -151,7 +139,7 @@ input[type="checkbox"] {
 .hint-btn:hover {
   color: #7cf;
 }
-#hint-overlay {
+#hintOverlay {
   display: none;
   position: fixed;
   inset: 0;
@@ -161,7 +149,7 @@ input[type="checkbox"] {
   justify-content: center;
   padding: 24px;
 }
-#hint-modal {
+#hintModal {
   background: #1a1a1a;
   border: 1px solid #555;
   border-radius: 8px;
@@ -173,7 +161,7 @@ input[type="checkbox"] {
   line-height: 1.6;
   position: relative;
 }
-#hint-text {
+#hintText {
   margin: 0;
 }
 .hint-close {
