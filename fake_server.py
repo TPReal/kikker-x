@@ -2,8 +2,7 @@
 """
 fake_server.py — KikkerX development HTTP server.
 
-Scans src/static/*.h on every request — no hardcoded catalog.
-Static files are re-read each time so edits take effect on browser reload.
+Serves static/ files directly — re-read on every request so edits take effect on browser reload.
 
 Usage:
     ./fake_server.py [--port PORT] [--board BOARD]
@@ -12,10 +11,6 @@ Usage:
     --board BOARD   Simulate a specific board's feature set:
                       timercam  — LED + battery enabled (default)
                       wrovercam — LED + battery disabled
-
-Requires Pillow for animated camera images:
-    pip install Pillow
-Without Pillow, camera endpoints return a static 1×1 placeholder JPEG.
 """
 
 from __future__ import annotations
@@ -26,10 +21,8 @@ import hashlib
 import io
 import json
 import math
-import mimetypes
 import os
 import random
-import re
 import socket
 import sys
 import time
@@ -38,17 +31,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from typing import Any
 from urllib.parse import urlparse, parse_qs
-
-from pylib import PUBLIC_FILES
-
-try:
-    from PIL import Image, ImageDraw, ImageFilter, ImageChops
-    import numpy as np
-except ImportError as e:
-    print(f"Error: {e}")
-    sys.exit("Package not installed. Run:  uv run fake_server.py")
-
-mimetypes.add_type("text/javascript", ".mjs")
+from pathlib import Path
+from pylib import PUBLIC_FILES, serve_static
+from PIL import Image, ImageDraw, ImageFilter, ImageChops
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Board feature table
@@ -63,7 +49,7 @@ _BOARD_FEATURES: dict[str, dict[str, Any]] = {
 _features: dict[str, Any] = {"board": "KikkerX (dev server)", "led": True, "battery": True}
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(SCRIPT_DIR, "src", "static")
+STATIC_DIR = os.path.join(SCRIPT_DIR, "static")
 
 with open(os.path.join(SCRIPT_DIR, "pyproject.toml"), "rb") as _f:
     _FIRMWARE_VERSION: str = tomllib.load(_f)["project"]["version"]
@@ -144,42 +130,7 @@ RESOLUTIONS = {
 # ---------------------------------------------------------------------------
 
 
-def _static_files() -> dict[str, str]:
-    """Returns {filename: path} for every *.h file in STATIC_DIR."""
-    result = {}
-    try:
-        for entry in os.scandir(STATIC_DIR):
-            if entry.name.endswith(".h") and entry.is_file():
-                basename = entry.name[:-2]  # strip .h
-                result[basename] = entry.path
-    except FileNotFoundError:
-        pass
-    return result
-
-
-def load_static(basename: str) -> tuple[bytes | None, str | None]:
-    """
-    Loads static content as bytes. Re-reads on every call.
-
-    Checks for an actual file in STATIC_DIR first, then falls back to parsing
-    the companion .h file."""
-    actual = os.path.join(STATIC_DIR, basename)
-    if os.path.isfile(actual):
-        with open(actual, "rb") as f:
-            data = f.read()
-        ctype, _ = mimetypes.guess_type(basename)
-        return data, ctype or "application/octet-stream"
-
-    files = _static_files()
-    path = files.get(basename)
-    if path is None:
-        return None, None
-    with open(path, "r", encoding="utf-8") as f:
-        text = f.read()
-    m = re.search(r'R"(\w*)\((.*?)\)\1"', text, re.DOTALL)
-    content = m.group(2) if m else text
-    ctype, _ = mimetypes.guess_type(basename)
-    return content.encode("utf-8"), ctype or "application/octet-stream"
+_STATIC_DIRS = [Path(STATIC_DIR), Path(SCRIPT_DIR)]
 
 
 # ---------------------------------------------------------------------------
@@ -1011,17 +962,7 @@ class KikkerXHandler(BaseHTTPRequestHandler):
                 bare += ".html"
             lookup = bare
 
-        content, ctype = load_static(lookup)
-        if content is not None:
-            body = content
-            is_text = (ctype or "").startswith("text/")
-            ct = (ctype or "application/octet-stream") + ("; charset=utf-8" if is_text else "")
-            self.send_response(200)
-            self.send_header("Content-Type", ct)
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+        if serve_static(self, lookup, _STATIC_DIRS):
             return
 
         # --- API routes ---

@@ -13,9 +13,8 @@ network.
 `cameras_hub.py` serves just the hub page — no camera hardware needed. Any machine on the local network can run it.
 
 ```sh
-python cameras_hub.py                               # http://localhost:8765/
-python cameras_hub.py --port 8080                   # custom port
-python cameras_hub.py --static-dir path/to/static   # custom static files dir (default: src/static/)
+python cameras_hub.py               # http://localhost:8765/
+python cameras_hub.py --port 8080   # custom port
 ```
 
 ### Loading a cameras config

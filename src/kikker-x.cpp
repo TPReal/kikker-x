@@ -423,7 +423,7 @@ static String parsePath(const String& reqLine) {
 static void serveStatic(WiFiClient& client, const StaticFile* f) {
   client.print("HTTP/1.1 200 OK\r\nContent-Type: ");
   client.print(f->contentType);
-  client.print("\r\nContent-Length: ");
+  client.print("\r\nContent-Encoding: gzip\r\nContent-Length: ");
   client.print(f->size);
   client.print("\r\nCache-Control: no-cache\r\n");
   client.print("Connection: close\r\n\r\n");

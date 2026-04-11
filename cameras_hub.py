@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Standalone Cameras Hub server.
 
-Serves only the hub page and its dependencies from the static dir.
+Serves only the hub page and its dependencies from the static/ directory next to this script.
 Optionally loads a store (cameras config) file.
 
 Usage:
-    python cameras_hub.py [--port PORT] [--static-dir DIR] [--store FILE]
+    python cameras_hub.py [--port PORT] [--store FILE]
                           [--auth-user USER] [--auth-password PASS]
                           [--auth-write-user USER] [--auth-write-password PASS]
 
@@ -32,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from pathlib import Path
 
-from pylib import PUBLIC_FILES, resolve_password
+from pylib import PUBLIC_FILES, resolve_password, serve_static
 
 
 OPEN_ACCESS_USERNAME = "*"
@@ -85,16 +85,6 @@ HUB_FILES = {
     "style.css",
 } | PUBLIC_FILES
 
-MIME_TYPES = {
-    ".html": "text/html; charset=utf-8",
-    ".css": "text/css; charset=utf-8",
-    ".mjs": "text/javascript; charset=utf-8",
-    ".js": "text/javascript; charset=utf-8",
-    ".svg": "image/svg+xml",
-    ".json": "application/json; charset=utf-8",
-    ".png": "image/png",
-}
-
 
 class _Formatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
     pass
@@ -138,11 +128,6 @@ Usage examples:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Standalone Cameras Hub server", epilog=_EPILOG, formatter_class=_Formatter)
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument(
-        "--static-dir",
-        default=None,
-        help="Directory containing hub static files (default: src/static next to this script)",
-    )
     p.add_argument("--store", default=None, metavar="FILE", help="Cameras store JSON file")
     p.add_argument(
         "--auth-user",
@@ -242,12 +227,13 @@ def extract_basic_auth(handler: BaseHTTPRequestHandler) -> tuple[str, str]:
 
 
 def make_handler(
-    static_dir: Path,
     script_dir: Path,
     store_path: Path | None,
     auth_read: Auth | None,
     auth_write: Auth | None,
 ) -> type[BaseHTTPRequestHandler]:
+    static_dir = script_dir / "static"
+
     class Handler(BaseHTTPRequestHandler):
         def _get_role(self) -> str:
             """Returns 'write', 'read', or 'denied'."""
@@ -264,20 +250,8 @@ def make_handler(
             self.end_headers()
 
         def _serve_file(self, filename: str) -> None:
-            filepath = static_dir / filename
-            if not filepath.exists():
-                filepath = script_dir / filename
-            try:
-                data = filepath.read_bytes()
-            except FileNotFoundError:
+            if not serve_static(self, filename, [static_dir, script_dir]):
                 self._send_error(404)
-                return
-            mime = MIME_TYPES.get(filepath.suffix, "application/octet-stream")
-            self.send_response(200)
-            self.send_header("Content-Type", mime)
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
 
         def do_GET(self) -> None:
             path = self.path.split("?")[0]
@@ -381,10 +355,6 @@ def main() -> None:
     args = parse_args()
 
     script_dir = Path(__file__).parent
-    static_dir = Path(args.static_dir) if args.static_dir else script_dir / "src" / "static"
-    if not static_dir.is_dir():
-        print(f"Error: static dir not found: {static_dir}", file=sys.stderr)
-        sys.exit(1)
     store_path: Path | None = None
     if args.store:
         store_path = Path(args.store)
@@ -400,7 +370,6 @@ def main() -> None:
     server = ThreadedHTTPServer(
         ("", args.port),
         make_handler(
-            static_dir=static_dir,
             script_dir=script_dir,
             store_path=store_path,
             auth_read=auth_read,

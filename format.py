@@ -16,7 +16,7 @@ if cpp_files:
     run("clang-format", "-i", *cpp_files)
 
 print("JS / HTML / CSS (biome check --write)...")
-run("npx", "@biomejs/biome", "check", "--write", "./src/static")
+run("npx", "@biomejs/biome", "check", "--write", "./static")
 
 print("Python (ruff format)...")
 run("uvx", "ruff", "format", *PYFILES)

@@ -161,7 +161,7 @@ battery-saving deep sleep between timelapse frames, and status logging.
 
 ## Development server
 
-`fake_server.py` serves the static UI from `src/static/` and simulates all API endpoints — no hardware needed.
+`fake_server.py` serves the static UI from `static/` and simulates all API endpoints — no hardware needed.
 
 → [Development guide](docs/development.md)
 
@@ -169,37 +169,37 @@ battery-saving deep sleep between timelapse frames, and status logging.
 
 ## Repository layout
 
-| Path                                                          | Description                                                                   |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `src/`                                                        | The firmware source code                                                      |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`kikker-x.cpp`            | Main firmware (HTTP server, camera, LED, power)                               |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`board.h`                 | Board abstraction interface (camera init, LED, battery, sleep)                |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`boards/`                 | Per-board implementations (`timercam_board.cpp`, `wrover_board.cpp`)          |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`static/`                 | Web assets (HTML, CSS, JS, SVG)                                               |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_config.json`            | Generated at build time by `prepare_config.py` (merged from configured files) |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_static_files.h`         | Generated at build time by `embed_static.py` (from `src/static/*`)            |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_version.h`              | Generated at build time by `generate_version.py` (from `pyproject.toml`)      |
-| `configs/`                                                    | Configuration files                                                           |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`config.json.template`    | Documents all config fields with comments                                     |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`default_config.json`     | Default config (no WiFi, AP fallback enabled, no auth)                        |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`platformio.ini`          | Local PlatformIO overrides — not committed (see template)                     |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`platformio.ini.template` | Template for multi-device configs                                             |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`README.md`               | Config system documentation                                                   |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`custom/`                 | Per-device config files — not committed (gitignored)                          |
-| `build_helpers/`                                              | Build scripts                                                                 |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`generate_version.py`     | PlatformIO pre-script: reads version from `pyproject.toml` → `src/_version.h` |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`embed_static.py`         | PlatformIO pre-script: embeds `src/static/*` into firmware                    |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`prepare_config.py`       | PlatformIO pre-script: merges config files → `src/_config.json`               |
-| `docs/`                                                       | Documentation pages                                                           |
-| `helpers/`                                                    | One-off maintenance scripts                                                   |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`generate_logo_png.py`    | Re-generate `logo.png` from `logo.svg` (run when the SVG logo changes)        |
-| [`fake_server.py`](docs/development.md)                       | Development HTTP server (no hardware needed)                                  |
-| [`video_saver.py`](docs/video-saver.md)                       | MJPEG/timelapse recorder → H.264 MP4                                          |
-| [`cameras_hub.py`](docs/cameras-hub.md)                       | Standalone Cameras Hub server (no device needed)                              |
-| `format.py`                                                   | Formats C++, JS/HTML/CSS, Python, and Markdown                                |
-| `checks.py`                                                   | Lints and type-checks JS/HTML/CSS and Python (`--fix` to auto-fix)            |
-| `platformio.ini`                                              | PlatformIO project configuration                                              |
-| `LICENSE`                                                     | MIT License                                                                   |
+| Path                                                          | Description                                                                                                                 |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `src/`                                                        | The firmware source code                                                                                                    |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`kikker-x.cpp`            | Main firmware (HTTP server, camera, LED, power)                                                                             |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`board.h`                 | Board abstraction interface (camera init, LED, battery, sleep)                                                              |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`boards/`                 | Per-board implementations (`timercam_board.cpp`, `wrover_board.cpp`)                                                        |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_config.json`            | Generated at build time by `prepare_config.py` (merged from configured files)                                               |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_static_files.h`         | Generated at build time by `embed_static.py` (gzip-compressed from `static/*`)                                              |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_version.h`              | Generated at build time by `generate_version.py` (from `pyproject.toml`)                                                    |
+| `configs/`                                                    | Configuration files                                                                                                         |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`config.json.template`    | Documents all config fields with comments                                                                                   |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`default_config.json`     | Default config (no WiFi, AP fallback enabled, no auth)                                                                      |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`platformio.ini`          | Local PlatformIO overrides — not committed (see template)                                                                   |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`platformio.ini.template` | Template for multi-device configs                                                                                           |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`README.md`               | Config system documentation                                                                                                 |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`custom/`                 | Per-device config files — not committed (gitignored)                                                                        |
+| `build_helpers/`                                              | Build scripts                                                                                                               |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`generate_version.py`     | PlatformIO pre-script: reads version from `pyproject.toml` → `src/_version.h`                                               |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`embed_static.py`         | PlatformIO pre-script: gzip-compresses `static/*` → embeds in firmware                                                      |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`prepare_config.py`       | PlatformIO pre-script: merges config files → `src/_config.json`                                                             |
+| `static/`                                                     | Web assets (HTML, CSS, JS, SVG) — served from `fake_server.py` / `cameras_hub.py`, embedded gzip-compressed in the firmware |
+| `helpers/`                                                    | One-off maintenance scripts                                                                                                 |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`generate_logo_png.py`    | Re-generate `logo.png` from `logo.svg` (run when the SVG logo changes)                                                      |
+| [`fake_server.py`](docs/development.md)                       | Development HTTP server (no hardware needed)                                                                                |
+| [`video_saver.py`](docs/video-saver.md)                       | MJPEG/timelapse recorder → H.264 MP4                                                                                        |
+| [`cameras_hub.py`](docs/cameras-hub.md)                       | Standalone Cameras Hub server (no device needed)                                                                            |
+| `format.py`                                                   | Formats C++, JS/HTML/CSS, Python, and Markdown                                                                              |
+| `checks.py`                                                   | Lints and type-checks JS/HTML/CSS and Python (`--fix` to auto-fix)                                                          |
+| `platformio.ini`                                              | PlatformIO project configuration                                                                                            |
+| `LICENSE`                                                     | MIT License                                                                                                                 |
+| `docs/`                                                       | Documentation pages                                                                                                         |
 
 ---
 

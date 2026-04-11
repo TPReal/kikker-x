@@ -2,7 +2,7 @@
 
 ## Development server
 
-`fake_server.py` serves the static UI from `src/static/` and simulates all API endpoints — no hardware needed.
+`fake_server.py` serves the static UI from `static/` and simulates all API endpoints — no hardware needed.
 
 ```sh
 ./fake_server.py                        # http://localhost:8080/, Timer Camera X features

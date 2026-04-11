@@ -13,7 +13,7 @@ PYFILES = [f for pat in ("*.py", "build_helpers/*.py", "helpers/*.py", "pylib/*.
 fix = "--fix" in sys.argv[1:]
 
 print("JS / HTML / CSS (biome check)...")
-run("npx", "@biomejs/biome", "check", *(["--write", "--unsafe"] if fix else []), "./src/static")
+run("npx", "@biomejs/biome", "check", *(["--write", "--unsafe"] if fix else []), "./static")
 
 print("Python (ruff check)...")
 run("uvx", "ruff", "check", *(["--fix"] if fix else []), *PYFILES)

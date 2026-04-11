@@ -15,7 +15,7 @@ function randomId() {
 
 const STORAGE_KEY = "hub.store";
 const STORE_VERSION = 1;
-const DEFAULT_INTERVAL = 30;
+const DEFAULT_INTERVAL = 0;
 
 // Hub status received from /api/hub/status, with defaults applied.
 let g_hubStatus = { isStandalone: true, store: { read: false, write: false } };
@@ -296,6 +296,10 @@ function applyHubImport(serverStore, replace) {
   });
 }
 
+function appendParam(url, param) {
+  return url + (url.includes("?") ? "&" : "?") + param;
+}
+
 // ---- Thumbnail URL ----------------------------------------------------------
 
 function thumbUrl(cam) {
@@ -303,8 +307,7 @@ function thumbUrl(cam) {
     const params = cam.captureParams ? `${cam.captureParams}&res=VGA` : "res=VGA";
     return `${cam.url}/api/cam/capture.jpg?${params}&_t=${Date.now()}`;
   }
-  const sep = cam.url.includes("?") ? "&" : "?";
-  return `${cam.url}${sep}_t=${Date.now()}`;
+  return appendParam(cam.url, `_t=${Date.now()}`);
 }
 
 // ---- Thumbnail fetch --------------------------------------------------------
@@ -425,11 +428,13 @@ async function fetchThumb(cam) {
     }
     // TypeError means CORS block or network failure. Probe with <img> to distinguish:
     // <img> ignores CORS headers so it loads if the server is reachable, fails if it's down.
+    // Cache-bust so a cached image from a prior successful load doesn't give a false positive.
+    const probeUrl = appendParam(url, `_probe=${Date.now()}`);
     const canDisplay = await new Promise(resolve => {
       const testImg = new Image();
       testImg.onload = () => resolve(true);
       testImg.onerror = () => resolve(false);
-      testImg.src = url;
+      testImg.src = probeUrl;
     });
     if (canDisplay) {
       // Server is up — CORS is blocking the fetch. If credentials were sent, auth headers
@@ -617,6 +622,7 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
   perCamRefreshBtn.textContent = "↻";
   perCamRefreshBtn.style.flexShrink = "0";
   perCamRefreshBtn.addEventListener("click", () => {
+    corsCameras.delete(cam.url);
     loadThumb(true);
   });
 
@@ -1274,6 +1280,9 @@ docElem.intervalSel.addEventListener("change", () => {
   const v = Number(docElem.intervalSel.value);
   patchPageOptions({ hubInterval: v });
   applyInterval(v);
+  if (v > 0) {
+    refreshThumbs();
+  }
 });
 
 docElem.refreshNowBtn.addEventListener("click", refreshThumbs);

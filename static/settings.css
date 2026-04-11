@@ -43,11 +43,6 @@ input[type="range"] {
   width: 100%;
   accent-color: #888;
 }
-input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-}
 .ctrl-select {
   background: #222;
   color: #fff;
