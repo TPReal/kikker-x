@@ -5,12 +5,12 @@
 #include "board.h"
 #include "log.h"
 
-#define LED_GPIO 2
-
 // ---------------------------------------------------------------------------
 // Pin configuration for ESP-WROVER-DEV / ESP-WROVER-KIT (all versions).
 // Source: Espressif arduino-esp32 camera_pins.h, CAMERA_MODEL_WROVER_KIT.
 // ---------------------------------------------------------------------------
+
+// Camera
 #define CAM_PIN_PWDN -1
 #define CAM_PIN_RESET -1
 #define CAM_PIN_XCLK 21
@@ -28,13 +28,16 @@
 #define CAM_PIN_HREF 23
 #define CAM_PIN_PCLK 22
 
+// LED — active-high on GPIO2.
+#define LED_PIN 2
+
 BoardFeatures boardFeatures() {
   return {.name = "ESP32-WROVER-CAM", .led = true, .battery = false};
 }
 
 void boardBegin() {
-  pinMode(LED_GPIO, OUTPUT);
-  digitalWrite(LED_GPIO, LOW);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
 }
 
 bool boardCameraInit() {
@@ -76,10 +79,11 @@ bool boardCameraInit() {
 }
 
 void boardSetLed(bool on) {
-  digitalWrite(LED_GPIO, on ? HIGH : LOW);
+  digitalWrite(LED_PIN, on ? HIGH : LOW);
 }
-BatteryData boardBattery() {
-  return {0, 0};
+
+int boardBatteryVoltage() {
+  return 0;
 }
 
 void boardPowerOff() {

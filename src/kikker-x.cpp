@@ -37,6 +37,7 @@
 
 #include "_version.h"
 #include "auth.h"
+#include "battery.h"
 #include "board.h"
 #include "config.h"
 #include "log.h"
@@ -854,7 +855,8 @@ static void getDeviceId(char out[13]) {
 
 static void handleStatus(WiFiClient& client, const String& reqLine, const String& origin) {
   BoardFeatures feat = boardFeatures();
-  BatteryData bat = feat.battery ? boardBattery() : BatteryData{};
+  int batV = feat.battery ? boardBatteryVoltage() : 0;
+  int batPct = feat.battery ? batteryLevel(batV) : 0;
   bool isAP = wifiIsAP();
   String ssid = isAP ? WiFi.softAPSSID() : WiFi.SSID();
   int32_t rssi = isAP ? 0 : WiFi.RSSI();
@@ -866,11 +868,11 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
     char buf[128];
     if (!isAP && feat.battery)
       snprintf(
-          buf, sizeof(buf), "WiFi: %s (%ddB), Battery: %dmV (%d%%)", ssid.c_str(), (int)rssi, bat.voltage, bat.level);
+          buf, sizeof(buf), "WiFi: %s (%ddB), Battery: %dmV (%d%%)", ssid.c_str(), (int)rssi, batV, batPct);
     else if (!isAP)
       snprintf(buf, sizeof(buf), "WiFi: %s (%ddB)", ssid.c_str(), (int)rssi);
     else if (feat.battery)
-      snprintf(buf, sizeof(buf), "WiFi: %s, Battery: %dmV (%d%%)", ssid.c_str(), bat.voltage, bat.level);
+      snprintf(buf, sizeof(buf), "WiFi: %s, Battery: %dmV (%d%%)", ssid.c_str(), batV, batPct);
     else
       snprintf(buf, sizeof(buf), "WiFi: %s", ssid.c_str());
     client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nCache-Control: no-cache\r\n");
@@ -891,8 +893,8 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
     cJSON_AddItemToObject(root, "wifi", wifi);
     if (feat.battery) {
       cJSON* battery = cJSON_CreateObject();
-      cJSON_AddNumberToObject(battery, "voltage", bat.voltage);
-      cJSON_AddNumberToObject(battery, "level", bat.level);
+      cJSON_AddNumberToObject(battery, "voltage", batV);
+      cJSON_AddNumberToObject(battery, "level", batPct);
       cJSON_AddItemToObject(root, "battery", battery);
     }
     char* json = cJSON_PrintUnformatted(root);
@@ -914,8 +916,8 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
   cJSON* root = cJSON_CreateObject();
   if (feat.battery) {
     cJSON* battery = cJSON_CreateObject();
-    cJSON_AddNumberToObject(battery, "voltage", bat.voltage);
-    cJSON_AddNumberToObject(battery, "level", bat.level);
+    cJSON_AddNumberToObject(battery, "voltage", batV);
+    cJSON_AddNumberToObject(battery, "level", batPct);
     cJSON_AddItemToObject(root, "battery", battery);
   }
   cJSON_AddStringToObject(root, "id", macStr);
@@ -947,7 +949,7 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
   }
   client.stop();
   if (feat.battery)
-    Log.printf("→ 200 status %dmV %d%% %s\n", (int)bat.voltage, (int)bat.level, isAP ? "ap" : "station");
+    Log.printf("→ 200 status %dmV %d%% %s\n", (int)batV, (int)batPct, isAP ? "ap" : "station");
   else
     Log.printf("→ 200 status %s\n", isAP ? "ap" : "station");
 }

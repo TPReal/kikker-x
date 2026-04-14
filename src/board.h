@@ -21,13 +21,8 @@ bool boardCameraInit();
 // LED control. Only meaningful if boardFeatures().led.
 void boardSetLed(bool on);
 
-struct BatteryData {
-  int16_t voltage;
-  int16_t level;
-};
-
-// Battery readings. Only meaningful if boardFeatures().battery.
-BatteryData boardBattery();
+// Battery voltage in mV. Only meaningful if boardFeatures().battery.
+int boardBatteryVoltage();
 
 // Power management. These never return.
 void boardPowerOff();
