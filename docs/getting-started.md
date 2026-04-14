@@ -97,6 +97,9 @@ Optional static IP per network entry:
 `IFS= read -rsp 'Password: ' pass && echo && printf '%s' "$pass" | sha256sum | cut -d' ' -f1; unset pass`. Paste the
 resulting hash into `pass_sha256`. To disable auth entirely, set `"auth": null`.
 
+**OTA updates** — enabled by default. Set `"allow_ota": false` to permanently disable wireless firmware updates (the
+upload button and `/api/ota` endpoint return 404).
+
 **mDNS hostname** — set `"mdns"` to the full hostname you want:
 
 ```json

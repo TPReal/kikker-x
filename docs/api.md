@@ -111,6 +111,31 @@ so the response confirms the request was received.
 
 ---
 
+## Firmware update (OTA)
+
+```sh
+curl -X POST "http://kikker-x.local/api/ota" \
+  --data-binary @.pio/build/kikker-x-timercam-default/firmware.bin \
+  -H "Content-Type: application/octet-stream"
+# → OTA update complete. Rebooting.
+```
+
+Uploads a firmware binary and reboots into it. The body must be a raw `.bin` file as produced by PlatformIO
+(`.pio/build/<env>/firmware.bin`). The binary is streamed directly into the inactive OTA flash partition, verified, and
+the device reboots.
+
+As the upload streams in, the firmware extracts the new image's version from an embedded marker and rejects the update
+if it would be a downgrade. After rebooting, the new firmware runs a self-test (camera init + capture). If it passes,
+the firmware is confirmed. If it fails (or the device crashes before confirming), the bootloader rolls back to the
+previous firmware on the next boot.
+
+The web UI at `/ota` wraps the same endpoint and adds: file / URL upload modes, drag-and-drop, pre-upload parsing of the
+new firmware's version (displayed in the confirmation dialog), and a progress indicator.
+
+Returns `404` if `"allow_ota": false` is set in the config.
+
+---
+
 ## WiFi
 
 ```sh

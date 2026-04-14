@@ -1,0 +1,105 @@
+.ota-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.5;
+}
+.ota-hint code {
+  color: #888;
+}
+.ota-current-line {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #999;
+}
+.ota-current-line span {
+  color: #ccc;
+}
+.ota-file-version {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #aaa;
+}
+.ota-mode-row {
+  display: flex;
+  gap: 1px;
+  margin-bottom: 12px;
+  background: #333;
+  border: 1px solid #333;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ota-mode-opt {
+  flex: 1;
+  text-align: center;
+  padding: 7px 8px;
+  background: #1a1a1a;
+  color: #777;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.ota-mode-opt:has(input:checked) {
+  background: #252525;
+  color: #ccc;
+}
+.ota-mode-opt input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.ota-url-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #999;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 5px 6px;
+}
+.ota-file {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #999;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+.ota-file::file-selector-button {
+  background: #222;
+  color: #888;
+  border: 1px solid #444;
+  border-radius: 2px;
+  padding: 3px 8px;
+  margin-right: 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.ota-file::file-selector-button:hover {
+  background: #2d2d2d;
+  color: #bbb;
+}
+.ota-btn {
+  width: auto;
+  flex-shrink: 0;
+}
+#otaStatus {
+  margin-top: 8px;
+  color: #666;
+  font-size: 11px;
+  min-height: 14px;
+}
+#otaPath {
+  margin-top: 3px;
+  color: #999;
+  font-size: 11px;
+  outline: none;
+}
+#otaFileRow.drag-over .ota-file {
+  outline: 2px dashed #555;
+  outline-offset: -2px;
+}

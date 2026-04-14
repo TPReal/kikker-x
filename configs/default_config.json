@@ -6,5 +6,6 @@
     "password": "RANDOM"
   },
   "allow_cors": true,
-  "auth": null
+  "auth": null,
+  "allow_ota": true
 }

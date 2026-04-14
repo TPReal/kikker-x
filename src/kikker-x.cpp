@@ -11,6 +11,7 @@
  * API endpoints:
  *   GET   /api/status                            → JSON {battery, id, wifi, version}
  *   POST  /api/restart                           → reboot the ESP32
+ *   POST  /api/ota                               → stream firmware binary; reboots on success
  *   POST  /api/poweroff?duration=N               → power off or timed sleep
  *   POST  /api/wifi/reconnect                    → disconnect WiFi, wait 3 s, reconnect (may roam)
  *   GET   /api/led                               → JSON {state: bool}
@@ -28,9 +29,11 @@
 #include <WiFi.h>
 #include <cJSON.h>
 #include <esp_camera.h>
+#include <esp_ota_ops.h>
 #include <lwip/sockets.h>
 
 #include <atomic>
+#include <cstring>
 
 #include "_version.h"
 #include "auth.h"
@@ -39,6 +42,31 @@
 #include "log.h"
 #include "static.h"
 #include "wifi_connect.h"
+
+// Marker placed in .rodata so we can identify our firmware version from the
+// raw binary. Both the on-device OTA handler (VersionScanner) and the web UI
+// scan the binary for "KIKKER_X_FW_VERSION=" and read the version string up
+// to \0. The prefix must exist exactly once in the binary — otherwise the
+// scanner could match a stray copy and read \0 (or garbage) as the version.
+// To ensure that, no other place in the code uses "KIKKER_X_FW_VERSION=" as
+// a string literal: VersionScanner::memcmp compares against this array, and
+// MARKER_LEN is computed by kMarkerPrefixLen() which scans this array.
+//
+// `constexpr` is required so kMarkerPrefixLen() below can read this array in a
+// constant expression under C++11 (Arduino core default). `used` keeps it in
+// rodata even though nothing in the running program reads it.
+//
+// NOTE: esp_app_desc->version can't be used because in PlatformIO + Arduino
+// the Arduino core is pre-built, so its esp_app_desc is baked in with the
+// IDF's own git describe and our PROJECT_VER never reaches it.
+__attribute__((used)) constexpr char KIKKER_X_FW_VERSION_MARKER[] = "KIKKER_X_FW_VERSION=" FIRMWARE_VERSION;
+
+// Length of the "KIKKER_X_FW_VERSION=" prefix (through and including the '=').
+// Computed by scanning the marker itself so no duplicate literal is emitted.
+// Recursive form because C++11 constexpr functions must be a single return.
+static constexpr size_t kMarkerPrefixLen(size_t n = 0) {
+  return KIKKER_X_FW_VERSION_MARKER[n] == '=' ? n + 1 : kMarkerPrefixLen(n + 1);
+}
 
 // ---------------------------------------------------------------------------
 // LED helper
@@ -198,10 +226,48 @@ static void applyQuality(int q) {
 // Setup
 // ---------------------------------------------------------------------------
 
+static void confirmOtaIfNeeded();
+
 void setup() {
+  // The marker is only read from outside the running program (JS / incoming
+  // OTA), so without an in-code reference the linker's --gc-sections drops it.
+  asm volatile("" : : "r"(KIKKER_X_FW_VERSION_MARKER));
+
   Serial.begin(115200);
   delay(500);  // Wait for the serial monitor to attach before logging.
   logInit();
+  {
+    const esp_partition_t* part = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+    const char* state_str = "n/a";
+    if (esp_ota_get_state_partition(part, &ota_state) == ESP_OK) {
+      switch (ota_state) {
+        case ESP_OTA_IMG_NEW:
+          state_str = "new";
+          break;
+        case ESP_OTA_IMG_PENDING_VERIFY:
+          state_str = "pending verify";
+          break;
+        case ESP_OTA_IMG_VALID:
+          state_str = "valid";
+          break;
+        case ESP_OTA_IMG_INVALID:
+          state_str = "invalid";
+          break;
+        case ESP_OTA_IMG_ABORTED:
+          state_str = "aborted";
+          break;
+        case ESP_OTA_IMG_UNDEFINED:
+          state_str = "undefined";
+          break;
+        default:
+          state_str = "unknown";
+          break;
+      }
+    }
+    Log.printf("Partition: %s @ 0x%x, OTA status: %s\n", part->label, (unsigned)part->address, state_str);
+  }
+  Log.printf("KikkerX v%s\n", FIRMWARE_VERSION);
   getConfig();  // parse and cache early so log output appears at startup
   boardBegin();
 
@@ -232,6 +298,7 @@ void setup() {
       Log.printf("Camera server ready at http://%s/\n", WiFi.localIP().toString().c_str());
     }
   }
+  confirmOtaIfNeeded();
 }
 
 // ---------------------------------------------------------------------------
@@ -253,7 +320,7 @@ static int readHeaders(WiFiClient& client, String& authHeader, String& originHea
       String val = line.substring(15);
       val.trim();
       contentLength = val.toInt();
-      if (contentLength < 0 || contentLength > 4096)
+      if (contentLength < 0)
         contentLength = 0;
     } else if (lower.startsWith("authorization:")) {
       authHeader = line.substring(14);
@@ -313,6 +380,252 @@ static void send503(WiFiClient& client, const char* msg, const String& origin) {
   client.print(msg);
   client.stop();
   Log.println("→ 503");
+}
+
+static void send400(WiFiClient& client, const char* msg, const String& origin) {
+  client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n");
+  endHeaders(client, origin);
+  client.print(msg);
+  client.stop();
+  Log.println("→ 400");
+}
+
+// ---------------------------------------------------------------------------
+// OTA helpers
+// ---------------------------------------------------------------------------
+
+// Returns negative if a < b, 0 if equal, positive if a > b.
+// Returns 0 (fail-open) if either string isn't parseable as semver.
+static int compareSemver(const char* a, const char* b) {
+  int amaj, amin, apatch, bmaj, bmin, bpatch;
+  if (sscanf(a, "%d.%d.%d", &amaj, &amin, &apatch) != 3)
+    return 0;
+  if (sscanf(b, "%d.%d.%d", &bmaj, &bmin, &bpatch) != 3)
+    return 0;
+  if (amaj != bmaj)
+    return amaj - bmaj;
+  if (amin != bmin)
+    return amin - bmin;
+  return apatch - bpatch;
+}
+
+// Tell Arduino's initArduino() to skip its built-in OTA auto-confirm so that
+// confirmOtaIfNeeded() can run the camera test first. The partition stays in
+// PENDING_VERIFY state; if the app crashes before confirming, the bootloader
+// sees PENDING_VERIFY on the next boot, marks it ABORTED, and rolls back.
+extern "C" bool verifyRollbackLater() {
+  return true;
+}
+
+// Streaming scanner for KIKKER_X_FW_VERSION=<ver>\0 anywhere in an incoming
+// OTA upload. Processes one byte at a time via feed(); uses a small sliding
+// window to match the marker across chunk boundaries. Memory: ~60 bytes.
+class VersionScanner {
+ public:
+  static constexpr size_t MARKER_LEN = kMarkerPrefixLen();
+  static constexpr size_t VERSION_MAX_LEN = 31;
+
+  void feed(const uint8_t* data, size_t n) {
+    for (size_t i = 0; i < n && !done_; i++) {
+      uint8_t b = data[i];
+      if (!matched_) {
+        memmove(window_, window_ + 1, MARKER_LEN - 1);
+        window_[MARKER_LEN - 1] = b;
+        // Compare against the marker global, not the PREFIX literal — otherwise
+        // the compiler emits a second "KIKKER_X_FW_VERSION=\0" literal that the
+        // scanner would match first, reading \0 as the version.
+        matched_ = memcmp(window_, KIKKER_X_FW_VERSION_MARKER, MARKER_LEN) == 0;
+      } else if (b == 0 || versionFill_ >= VERSION_MAX_LEN) {
+        done_ = true;  // versionBuf_ is zero-initialized, so already null-terminated.
+      } else {
+        versionBuf_[versionFill_++] = b;
+      }
+    }
+  }
+  bool done() const {
+    return done_;
+  }
+  // Valid only after done() returns true.
+  const char* version() const {
+    return versionBuf_;
+  }
+
+ private:
+  bool matched_ = false;
+  bool done_ = false;
+  // Starts zero-filled. MARKER contains no zero bytes, so a partially-filled
+  // window can never match, and no fill counter is needed.
+  uint8_t window_[MARKER_LEN] = {};
+  char versionBuf_[VERSION_MAX_LEN + 1] = {};
+  size_t versionFill_ = 0;
+};
+
+static void handleOTA(WiFiClient& client, int contentLength, const String& originHeader) {
+  if (!getConfig().allow_ota) {
+    send404(client, originHeader);
+    return;
+  }
+  if (contentLength <= 0) {
+    send400(client, "Content-Length required.", originHeader);
+    return;
+  }
+  const esp_partition_t* part = esp_ota_get_next_update_partition(NULL);
+  if (!part) {
+    send503(client, "No OTA partition.", originHeader);
+    return;
+  }
+  esp_ota_handle_t handle = 0;
+  if (esp_ota_begin(part, OTA_SIZE_UNKNOWN, &handle) != ESP_OK) {
+    send503(client, "OTA begin failed.", originHeader);
+    return;
+  }
+  stopStream();
+  const char* runningVersion = FIRMWARE_VERSION;
+  int remaining = contentLength;
+  bool ok = true;
+  esp_err_t werr = ESP_OK;
+  bool versionDowngrade = false;
+  char incomingVersion[VersionScanner::VERSION_MAX_LEN + 1] = {};
+  uint8_t buf[1024];
+  unsigned long deadline = millis() + 120000;
+  VersionScanner scanner;
+  bool versionCommitted = false;
+  while (remaining > 0 && ok && millis() < deadline) {
+    if (!client.connected() && !client.available()) {
+      ok = false;
+      break;
+    }
+    int avail = client.available();
+    if (avail == 0) {
+      delay(1);
+      continue;
+    }
+    int toRead = min(remaining, min(avail, (int)sizeof(buf)));
+    int n = client.read(buf, toRead);
+    if (n <= 0) {
+      delay(1);
+      continue;
+    }
+    werr = esp_ota_write(handle, buf, n);
+    if (werr != ESP_OK) {
+      ok = false;
+      continue;
+    }
+    remaining -= n;
+    if (!versionCommitted) {
+      scanner.feed(buf, n);
+      if (scanner.done()) {
+        versionCommitted = true;
+        strlcpy(incomingVersion, scanner.version(), sizeof(incomingVersion));
+        if (compareSemver(incomingVersion, runningVersion) < 0) {
+          versionDowngrade = true;
+          ok = false;
+        } else {
+          Log.printf("OTA: v%s → v%s\n", runningVersion, incomingVersion);
+        }
+      }
+    }
+  }
+  // Drain remaining bytes so the browser finishes uploading before we send
+  // the error response — otherwise it sees a connection reset instead of the
+  // HTTP status. Skip draining on timeout; remaining data could be huge.
+  auto drain = [&]() {
+    unsigned long drainUntil = millis() + 10000;
+    while (remaining > 0 && millis() < drainUntil) {
+      if (!client.connected() && !client.available())
+        break;
+      int n = client.read(buf, min(remaining, (int)sizeof(buf)));
+      if (n > 0)
+        remaining -= n;
+      else
+        delay(1);
+    }
+  };
+  if (versionDowngrade) {
+    esp_ota_abort(handle);
+    char msg[80];
+    snprintf(msg, sizeof(msg), "Downgrade OTA not allowed (v%s → v%s).", runningVersion, incomingVersion);
+    drain();
+    send400(client, msg, originHeader);
+    return;
+  }
+  if (!ok || remaining > 0) {
+    esp_ota_abort(handle);
+    char uploadErr[80];
+    if (!ok) {
+      const char* reason = (werr == ESP_ERR_OTA_VALIDATE_FAILED) ? "Not a valid firmware image." : "OTA write failed.";
+      if (incomingVersion[0])
+        snprintf(uploadErr, sizeof(uploadErr), "%s (v%s → v%s)", reason, runningVersion, incomingVersion);
+      else
+        strlcpy(uploadErr, reason, sizeof(uploadErr));
+      drain();
+    } else {
+      strlcpy(uploadErr, "OTA upload timed out.", sizeof(uploadErr));
+    }
+    send503(client, uploadErr, originHeader);
+    return;
+  }
+  if (esp_ota_end(handle) != ESP_OK) {
+    char endErr[80];
+    if (incomingVersion[0])
+      snprintf(endErr, sizeof(endErr), "Firmware verification failed. (v%s → v%s)", runningVersion, incomingVersion);
+    else
+      strlcpy(endErr, "Firmware verification failed.", sizeof(endErr));
+    send400(client, endErr, originHeader);
+    return;
+  }
+  if (esp_ota_set_boot_partition(part) != ESP_OK) {
+    send503(client, "Failed to set boot partition.", originHeader);
+    return;
+  }
+  char successMsg[64];
+  if (incomingVersion[0]) {
+    snprintf(successMsg, sizeof(successMsg), "Updated v%s → v%s. Rebooting.", runningVersion, incomingVersion);
+  } else {
+    strlcpy(successMsg, "OTA update complete. Rebooting.", sizeof(successMsg));
+  }
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n");
+  endHeaders(client, originHeader);
+  client.print(successMsg);
+  client.flush();
+  client.stop();
+  Log.printf("→ 200 OTA complete (%s)\n", successMsg);
+  delay(500);
+  ESP.restart();
+}
+
+// Called once in setup() to verify a newly installed OTA firmware.
+// verifyRollbackLater() returns true, so Arduino's initArduino() skips its
+// built-in auto-confirm and the partition stays in PENDING_VERIFY state here.
+static void confirmOtaIfNeeded() {
+  esp_ota_img_states_t state;
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (esp_ota_get_state_partition(running, &state) != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY)
+    return;
+  Log.println("OTA: experimental firmware — verifying...");
+  xSemaphoreTake(cameraMutex, portMAX_DELAY);
+  bool ok = cameraEnsureReady();
+  if (ok) {
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb) {
+      esp_camera_fb_return(fb);
+      Log.println("OTA: camera capture ok");
+    } else {
+      ok = false;
+      Log.println("OTA: camera capture failed");
+    }
+    cameraRelease();
+  } else {
+    Log.println("OTA: camera init failed");
+  }
+  xSemaphoreGive(cameraMutex);
+  if (ok) {
+    Log.println("OTA: verification passed, firmware confirmed");
+    esp_ota_mark_app_valid_cancel_rollback();
+    return;
+  }
+  Log.println("OTA: verification failed, rolling back");
+  esp_ota_mark_app_invalid_rollback_and_reboot();
 }
 
 // Send raw bytes in CHUNK-sized pieces. Returns true only if all sent.
@@ -1144,6 +1457,10 @@ void loop() {
 
   // --- POST routes ---
   if (isPost) {
+    if (path == "/api/ota") {
+      handleOTA(client, bodyLen, originHeader);
+      return;
+    }
     String body = readBody(client, bodyLen);
     if (path == "/api/restart") {
       client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n");

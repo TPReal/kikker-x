@@ -360,6 +360,53 @@ async function extractFirstJpegFrame(resp) {
 // Maps camera base URL → "img" (image displayable via <img>) or "noimg" (auth required, not displayable).
 const corsCameras = new Map();
 
+// KikkerX firmware versions as reported by each camera's /api/status.
+// Populated by loadStatus(); cleared in renderGrid() so stale entries from
+// removed cameras can't keep flagging others as outdated.
+const cameraVersions = new Map();
+
+function compareVersion(a, b) {
+  const aa = a.split(".").map(Number);
+  const bb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(aa.length, bb.length); i++) {
+    const d = (aa[i] || 0) - (bb[i] || 0);
+    if (d !== 0) {
+      return Math.sign(d);
+    }
+  }
+  return 0;
+}
+
+function maxReportedVersion() {
+  let max = null;
+  for (const v of cameraVersions.values()) {
+    if (max === null || compareVersion(v, max) > 0) {
+      max = v;
+    }
+  }
+  return max;
+}
+
+// Shows or hides each card's "outdated firmware" button based on the current
+// max version. Called after every status fetch so newly-detected higher
+// versions flag the older cameras immediately.
+function updateOutdatedIndicators() {
+  const max = maxReportedVersion();
+  document.querySelectorAll(".cam-card[data-version]").forEach(card => {
+    const btn = card.querySelector(".cam-outdated-btn");
+    if (!btn) {
+      return;
+    }
+    const myVer = card.dataset.version;
+    if (max && compareVersion(myVer, max) < 0) {
+      btn.title = `Firmware v${myVer} is lower than v${max} detected on another camera — click to open the update page.`;
+      btn.hidden = false;
+    } else {
+      btn.hidden = true;
+    }
+  });
+}
+
 // Returns one of:
 //   {status: "ok", blobUrl}      — success
 //   {status: "cors", imgUrl}     — no CORS headers; image displayable via <img>
@@ -429,11 +476,24 @@ async function fetchThumb(cam) {
     // TypeError means CORS block or network failure. Probe with <img> to distinguish:
     // <img> ignores CORS headers so it loads if the server is reachable, fails if it's down.
     // Cache-bust so a cached image from a prior successful load doesn't give a false positive.
+    // Short timeout: a real CORS-blocked server responds to <img> quickly; a slow or flaky
+    // server that happens to respond just before TCP timeout would be a false CORS positive.
     const probeUrl = appendParam(url, `_probe=${Date.now()}`);
     const canDisplay = await new Promise(resolve => {
       const testImg = new Image();
-      testImg.onload = () => resolve(true);
-      testImg.onerror = () => resolve(false);
+      const timer = setTimeout(() => {
+        testImg.onload = testImg.onerror = null;
+        testImg.src = "";
+        resolve(false);
+      }, 5000);
+      testImg.onload = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      testImg.onerror = () => {
+        clearTimeout(timer);
+        resolve(false);
+      };
       testImg.src = probeUrl;
     });
     if (canDisplay) {
@@ -701,11 +761,22 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
     links.appendChild(a);
   }
 
+  let outdatedBtn = null;
   if (cam.type === "kikker-x") {
     statusBtn = document.createElement("span");
     statusBtn.className = "cam-status-btn";
     statusBtn.hidden = true;
     links.appendChild(statusBtn);
+
+    outdatedBtn = document.createElement("button");
+    outdatedBtn.type = "button";
+    outdatedBtn.className = "icon-btn cam-outdated-btn";
+    outdatedBtn.textContent = "!";
+    outdatedBtn.hidden = true;
+    outdatedBtn.addEventListener("click", () => {
+      window.open(`${cam.url}/ota`, "_blank");
+    });
+    links.appendChild(outdatedBtn);
   }
 
   const corsBtn = document.createElement("span");
@@ -962,6 +1033,11 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
       statusBtn.title = lines.join("\n");
       statusBtn.hidden = false;
       statusBtn.classList.remove("stale");
+      if (data.version) {
+        cameraVersions.set(cam.url, data.version);
+        card.dataset.version = data.version;
+        updateOutdatedIndicators();
+      }
     } catch (e) {
       console.debug(`[hub] ${cam.url}/api/status fetch failed:`, e.message);
     }
@@ -977,6 +1053,8 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
 
 function renderGrid() {
   const cameras = loadStore().cameras;
+  cameraVersions.clear();
+  corsCameras.clear();
 
   const urlCount = new Map();
   for (const cam of cameras) {
@@ -1061,7 +1139,7 @@ function buildExportJson(cameras, auths) {
     const escaped = Array.from(a.password || "")
       .map(c => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`)
       .join("");
-    json = json.replace(passwordMask(i), `"${escaped}"`);
+    json = json.replace(passwordMask(i), escaped);
   }
   return json;
 }

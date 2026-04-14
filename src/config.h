@@ -26,6 +26,7 @@ struct Config {
   const ApFallback* ap_fallback;  // nullptr if not configured
   bool allow_cors;  // send Access-Control-Allow-Origin headers; default true
   AuthConfig auth;  // auth.username == nullptr → auth disabled
+  bool allow_ota;  // allow firmware updates via POST /api/ota; default true
 };
 
 // Parse the embedded _config.json and return a filled Config.

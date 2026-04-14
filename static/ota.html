@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KikkerX — Firmware Update</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#103a1c" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/index.css" />
+    <link rel="stylesheet" href="/ota.css" />
+  </head>
+  <body>
+    <div class="page">
+      <h1><a href="/" style="color: #fff; text-decoration: none">⇦</a> Firmware Update</h1>
+      <p class="ota-current-line">Current firmware: <span id="otaCurrentVersion">…</span></p>
+      <div class="ota-mode-row">
+        <label class="ota-mode-opt">
+          <input type="radio" name="otaMode" value="file" checked />
+          Upload file
+        </label>
+        <label class="ota-mode-opt">
+          <input type="radio" name="otaMode" value="url" />
+          Fetch from URL
+        </label>
+      </div>
+      <p class="ota-hint">
+        Flash new firmware onto the device. The file is typically named <code>firmware.bin</code> and
+        is produced by the build.
+      </p>
+      <div id="otaFileSection">
+        <div id="otaFileRow" class="btn-row">
+          <input type="file" id="otaFile" class="ota-file" accept=".bin" />
+          <button type="button" id="otaBtn" class="restart-btn ota-btn" disabled>Flash</button>
+        </div>
+        <div id="otaFileVersion" class="ota-file-version" hidden></div>
+      </div>
+      <div id="otaUrlRow" class="btn-row" style="display:none">
+        <input type="url" id="otaUrl" class="ota-url-input" placeholder="https://…/firmware.bin" />
+        <button type="button" id="otaFetchBtn" class="restart-btn ota-btn" disabled>Fetch & Flash</button>
+      </div>
+      <div id="otaStatus"></div>
+      <div id="otaPath" hidden></div>
+    </div>
+    <script type="module" src="/ota.mjs"></script>
+  </body>
+</html>

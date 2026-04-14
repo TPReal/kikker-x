@@ -1104,6 +1104,10 @@ class KikkerXHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             self.rfile.read(length)  # consume body, blink not simulated
             self._send_text("OK")
+        elif path == "/api/ota":
+            length = int(self.headers.get("Content-Length", 0))
+            self.rfile.read(length)  # consume body, OTA not simulated
+            self._send_text("OTA update not supported on dev server.")
         else:
             self.send_error(405)
 

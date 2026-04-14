@@ -35,6 +35,7 @@ Supported boards:
   reachable; switches back to station mode automatically when a known network reappears.
 - **mDNS**: reachable at `http://kikker-x.local/` or a custom hostname.
 - **Basic auth** (optional): username + SHA-256-hashed password in the config file.
+- **Over-the-air updates**: safely upload a new firmware image through the web UI or `/api/ota`.
 - **Mobile-friendly UI**: responsive layout that works well on phones and tablets.
 - **Cameras Hub**: multi-camera dashboard showing live thumbnails and links for any number of KikkerX or other cameras.
   Runs embedded on every device at `/hub`, or standalone via `cameras_hub.py` on any machine.
@@ -118,12 +119,13 @@ needed only for development or the video recorder.
 
 Open `http://kikker-x.local/` (or the configured mDNS hostname, shown also in the serial log at startup).
 
-| Page  | URL      | Description                                  |
-| ----- | -------- | -------------------------------------------- |
-| Home  | `/`      | Status, battery, WiFi, LED, power management |
-| Video | `/video` | Live MJPEG stream + settings panel           |
-| Photo | `/photo` | Still capture + settings panel               |
-| Logs  | `/logs`  | Scrollable in-memory log buffer              |
+| Page  | URL      | Description                                      |
+| ----- | -------- | ------------------------------------------------ |
+| Home  | `/`      | Status, battery, WiFi, LED, power management     |
+| Video | `/video` | Live MJPEG stream + settings panel               |
+| Photo | `/photo` | Still capture + settings panel                   |
+| Logs  | `/logs`  | Scrollable in-memory log buffer                  |
+| OTA   | `/ota`   | Upload a new firmware image (with version check) |
 
 The settings panel on the Video and Photo pages exposes all OV3660 sensor parameters.
 
@@ -172,7 +174,7 @@ battery-saving deep sleep between timelapse frames, and status logging.
 | Path                                                          | Description                                                                                                                 |
 | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `src/`                                                        | The firmware source code                                                                                                    |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`kikker-x.cpp`            | Main firmware (HTTP server, camera, LED, power)                                                                             |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`kikker-x.cpp`            | Main firmware (HTTP server, camera, LED, power, OTA)                                                                        |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`board.h`                 | Board abstraction interface (camera init, LED, battery, sleep)                                                              |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`boards/`                 | Per-board implementations (`timercam_board.cpp`, `wrover_board.cpp`)                                                        |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_config.json`            | Generated at build time by `prepare_config.py` (merged from configured files)                                               |

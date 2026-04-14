@@ -111,7 +111,13 @@ Config getConfig() {
       Log.println("config: ERROR: auth.username set but auth.pass_sha256 missing — all requests will be denied");
   }
 
-  Log.printf("config: mdns=%s cors=%s auth=%s\n", s_config.mdns ? s_config.mdns : "(none)",
-      s_config.allow_cors ? "on" : "off", s_config.auth.username ? s_config.auth.username : "(none)");
+  s_config.allow_ota = true;
+  cJSON* allowOta = cJSON_GetObjectItemCaseSensitive(s_root, "allow_ota");
+  if (cJSON_IsBool(allowOta))
+    s_config.allow_ota = cJSON_IsTrue(allowOta);
+
+  Log.printf("config: mdns=%s cors=%s auth=%s ota=%s\n", s_config.mdns ? s_config.mdns : "(none)",
+      s_config.allow_cors ? "on" : "off", s_config.auth.username ? s_config.auth.username : "(none)",
+      s_config.allow_ota ? "on" : "off");
   return s_config;
 }

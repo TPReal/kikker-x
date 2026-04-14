@@ -124,9 +124,13 @@ button {
   font-size: 13px;
   line-height: 1.4;
 }
-button:hover {
+button:not(:disabled):hover {
   background: #333;
   color: #fff;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .bar button {
   white-space: nowrap;

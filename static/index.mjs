@@ -1,6 +1,8 @@
 import { getPageOptions, patchPageOptions } from "/page_options.mjs";
 import { docElem } from "/util.mjs";
 
+const RELOAD_DELAY_MS = 8000;
+
 function loadStatus() {
   fetch("/api/status")
     .then(r => r.json())
@@ -28,10 +30,10 @@ function loadStatus() {
           ? `${d.wifi.ssid} · ${d.wifi.ip} · (AP mode)`
           : `${d.wifi.ssid} · ${d.wifi.ip} · ${d.wifi.rssi} dBm`;
       docElem.statusWifi.textContent = wifiText;
-      docElem.statusVer.textContent = d.version;
+      docElem.statusVerText.textContent = `v${d.version}`;
     })
     .catch(() => {
-      ["statusBat", "statusBoard", "statusId", "statusWifi", "statusVer"].forEach(id => {
+      ["statusBat", "statusBoard", "statusId", "statusWifi", "statusVerText"].forEach(id => {
         docElem[id].textContent = "N/A";
       });
     });
@@ -78,11 +80,12 @@ function doReconnect() {
     .then(r => r.text())
     .then(t => {
       docElem.msg.textContent = `${t} Reloading…`;
-      setTimeout(() => location.reload(), 6000);
     })
     .catch(() => {
-      docElem.msg.textContent = "Reconnecting… Reloading…";
-      setTimeout(() => location.reload(), 6000);
+      docElem.msg.textContent = "Device is reconnecting. Reloading soon…";
+    })
+    .finally(() => {
+      setTimeout(() => location.reload(), RELOAD_DELAY_MS);
     });
 }
 
@@ -92,11 +95,12 @@ function doRestart() {
     .then(r => r.text())
     .then(t => {
       docElem.msg.textContent = t;
-      setTimeout(() => location.reload(), 3000);
     })
     .catch(() => {
-      docElem.msg.textContent = "Device is restarting.";
-      setTimeout(() => location.reload(), 3000);
+      docElem.msg.textContent = "Device is restarting. Reloading soon…";
+    })
+    .finally(() => {
+      setTimeout(() => location.reload(), RELOAD_DELAY_MS);
     });
 }
 

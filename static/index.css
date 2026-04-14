@@ -36,11 +36,21 @@
   text-decoration-color: #888;
 }
 .hub-link {
-  text-align: center;
-  margin: 16px 0 24px;
+  margin: 8px 0 16px;
 }
 .logs-link {
   margin: -16px 0 24px;
+}
+.ota-inline-link {
+  margin-left: 6px;
+  font-size: 11px;
+  color: #555;
+  text-decoration: underline;
+  text-decoration-color: #444;
+}
+.ota-inline-link:hover {
+  color: #888;
+  text-decoration-color: #666;
 }
 .status-info {
   display: grid;
@@ -121,7 +131,7 @@ select {
   cursor: pointer;
   font-size: 13px;
 }
-.restart-btn:hover {
+.restart-btn:not(:disabled):hover {
   background: #252525;
   color: #fff;
   border-color: #555;
@@ -136,7 +146,7 @@ select {
   cursor: pointer;
   font-size: 13px;
 }
-.off-btn:hover {
+.off-btn:not(:disabled):hover {
   background: #4d0000;
 }
 #msg {
@@ -176,11 +186,11 @@ select {
     0 0 7px #2244aa66,
     0 0 16px #1133771a;
 }
-.led-btn:hover {
+.led-btn:not(:disabled):hover {
   border-color: #4466cc;
   color: #1e1e44;
 }
-.led-btn.on:hover {
+.led-btn.on:not(:disabled):hover {
   color: #7799ee;
 }
 .blink-btn {
@@ -197,7 +207,7 @@ select {
     color 0.15s,
     border-color 0.15s;
 }
-.blink-btn:hover {
+.blink-btn:not(:disabled):hover {
   background: #111230;
   color: #8899cc;
   border-color: #3344aa;

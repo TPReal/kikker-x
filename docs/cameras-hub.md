@@ -95,6 +95,9 @@ and Video pages and fetches thumbnails from `/api/cam/capture.jpg`.
 **Capture params** — optional query parameters appended to the thumbnail and capture URL, e.g. `aec2=1`. Useful to avoid
 requesting a full-resolution image for every refresh.
 
+**Status tooltip** — the hub fetches `/api/status` for each KikkerX camera and shows a small **i** button with WiFi and
+battery info on hover.
+
 ### Other
 
 Add any camera that exposes a direct JPEG or MJPEG snapshot URL. The hub shows the thumbnail and a single "Open" link.

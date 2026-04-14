@@ -42,6 +42,10 @@
   "auth": {
     "username": "admin",
     "pass_sha256": "your-sha256-hash-here"
-  }
+  },
+
+  // Allow firmware updates over-the-air via POST /api/ota and the web UI upload button.
+  // Set to false to permanently disable the endpoint (returns 404).
+  "allow_ota": true
 
 }

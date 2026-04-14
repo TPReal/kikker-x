@@ -68,6 +68,8 @@ for name, src_path in all_assets:
         digest.update(fh.read())
 
 # Gzip each file into out_dir.
+total_size = 0
+total_gz_size = 0
 for name, src_path in all_assets:
     gz_path = os.path.join(out_dir, name + ".gz")
     with open(src_path, "rb") as fin:
@@ -77,6 +79,10 @@ for name, src_path in all_assets:
     gz_size = os.path.getsize(gz_path)
     ratio = gz_size / len(data) * 100 if data else 0
     print(f"[{script_name}] {name}: {len(data)} B → {gz_size} B ({ratio:.0f}%)")
+    total_size += len(data)
+    total_gz_size += gz_size
+total_ratio = total_gz_size / total_size * 100 if total_size else 0
+print(f"[{script_name}] Total size: {total_size} B → {total_gz_size} B ({total_ratio:.0f}%)")
 
 out_path = os.path.join(env.get("PROJECT_SRC_DIR"), "_static_files.h")
 with open(out_path, "w") as f:
