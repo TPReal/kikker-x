@@ -11,7 +11,8 @@
  * API endpoints:
  *   GET   /api/status                            → JSON {battery, id, wifi, version}
  *   POST  /api/restart                           → reboot the ESP32
- *   POST  /api/ota                               → stream firmware binary; reboots on success
+ *   GET   /api/firmware                            → download running firmware (if policy allows)
+ *   POST  /api/firmware                           → stream firmware binary; reboots on success
  *   POST  /api/poweroff?duration=N               → power off or timed sleep
  *   POST  /api/wifi/reconnect                    → disconnect WiFi, wait 3 s, reconnect (may roam)
  *   GET   /api/led                               → JSON {state: bool}
@@ -29,6 +30,7 @@
 #include <WiFi.h>
 #include <cJSON.h>
 #include <esp_camera.h>
+#include <esp_image_format.h>
 #include <esp_ota_ops.h>
 #include <lwip/sockets.h>
 
@@ -383,6 +385,14 @@ static void send503(WiFiClient& client, const char* msg, const String& origin) {
   Log.println("→ 503");
 }
 
+static void send403(WiFiClient& client, const char* msg, const String& origin) {
+  client.print("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n");
+  endHeaders(client, origin);
+  client.print(msg);
+  client.stop();
+  Log.println("→ 403");
+}
+
 static void send400(WiFiClient& client, const char* msg, const String& origin) {
   client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n");
   endHeaders(client, origin);
@@ -593,6 +603,56 @@ static void handleOTA(WiFiClient& client, int contentLength, const String& origi
   Log.printf("→ 200 OTA complete (%s)\n", successMsg);
   delay(500);
   ESP.restart();
+}
+
+static void handleFirmwareGet(WiFiClient& client, const String& origin) {
+  if (CONFIG_POLICY < CONFIG_POLICY_LOAD_OR_USE_DEFAULT) {
+    send403(client, "Firmware download disabled (config policy embeds secrets).", origin);
+    return;
+  }
+  const esp_partition_t* part = esp_ota_get_running_partition();
+  if (!part) {
+    send503(client, "Could not read running partition.", origin);
+    return;
+  }
+  // Verify the image and get its exact size.
+  esp_image_metadata_t meta;
+  esp_partition_pos_t pos = {.offset = part->address, .size = part->size};
+  if (esp_image_verify(ESP_IMAGE_VERIFY, &pos, &meta) != ESP_OK) {
+    send503(client, "Could not read firmware image.", origin);
+    return;
+  }
+  size_t totalSize = meta.image_len;
+
+  char lenBuf[32];
+  snprintf(lenBuf, sizeof(lenBuf), "%u", (unsigned)totalSize);
+  client.print(
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/octet-stream\r\n"
+      "Content-Disposition: attachment; filename=\"firmware.bin\"\r\n"
+      "Content-Length: ");
+  client.print(lenBuf);
+  client.print("\r\n");
+  // Always send CORS for firmware downloads — the binary has no secrets.
+  if (origin.length() > 0) {
+    client.print("Access-Control-Allow-Origin: ");
+    client.print(origin);
+    client.print("\r\nVary: Origin\r\n");
+  }
+  client.print("Connection: close\r\n\r\n");
+
+  uint8_t buf[1024];
+  size_t sent = 0;
+  while (sent < totalSize) {
+    size_t chunk = min((size_t)sizeof(buf), totalSize - sent);
+    if (esp_partition_read(part, sent, buf, chunk) != ESP_OK) {
+      break;
+    }
+    client.write(buf, chunk);
+    sent += chunk;
+  }
+  client.stop();
+  Log.printf("→ 200 firmware GET %u bytes\n", (unsigned)sent);
 }
 
 // Called once in setup() to verify a newly installed OTA firmware.
@@ -867,8 +927,7 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
   if (mode == "short_text") {
     char buf[128];
     if (!isAP && feat.battery)
-      snprintf(
-          buf, sizeof(buf), "WiFi: %s (%ddB), Battery: %dmV (%d%%)", ssid.c_str(), (int)rssi, batV, batPct);
+      snprintf(buf, sizeof(buf), "WiFi: %s (%ddB), Battery: %dmV (%d%%)", ssid.c_str(), (int)rssi, batV, batPct);
     else if (!isAP)
       snprintf(buf, sizeof(buf), "WiFi: %s (%ddB)", ssid.c_str(), (int)rssi);
     else if (feat.battery)
@@ -934,6 +993,8 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
   cJSON_AddItemToObject(root, "wifi", wifi);
   cJSON_AddStringToObject(root, "camera", "kikker-x");
   cJSON_AddStringToObject(root, "version", FIRMWARE_VERSION);
+  cJSON_AddStringToObject(root, "config_policy", getConfigPolicyName());
+  cJSON_AddBoolToObject(root, "allow_ota", getConfig().allow_ota);
   cJSON* features = cJSON_CreateObject();
   cJSON_AddStringToObject(features, "board", feat.name);
   cJSON_AddBoolToObject(features, "led", feat.led);
@@ -1459,7 +1520,7 @@ void loop() {
 
   // --- POST routes ---
   if (isPost) {
-    if (path == "/api/ota") {
+    if (path == "/api/firmware") {
       handleOTA(client, bodyLen, originHeader);
       return;
     }
@@ -1528,7 +1589,9 @@ void loop() {
 
   // --- GET API routes ---
   if (path.startsWith("/api/")) {
-    if (path == "/api/logs") {
+    if (path == "/api/firmware") {
+      handleFirmwareGet(client, originHeader);
+    } else if (path == "/api/logs") {
       handleLogs(client, originHeader);
     } else if (path == "/api/hub/status") {
       handleHubStatus(client, originHeader);

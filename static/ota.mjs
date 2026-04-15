@@ -88,9 +88,18 @@ function firmwareConfirmLine(info) {
 async function loadCurrentVersion() {
   try {
     const res = await fetch("/api/status");
-    const data = await res.json();
-    docElem.otaCurrentVersion.textContent = data.version ? `v${data.version}` : "unknown";
+    const status = await res.json();
+    docElem.otaBoard.textContent = status.features?.board || "unknown";
+    docElem.otaCurrentVersion.textContent = status.version ? `v${status.version}` : "unknown";
+    const noSecrets = status.config_policy === "LOAD_OR_USE_DEFAULT" || status.config_policy === "LOAD_OR_FAIL";
+    docElem.otaDownload.hidden = !noSecrets;
+    if (status.allow_ota === false) {
+      docElem.otaDisabled.hidden = false;
+      docElem.otaModeRow.style.display = "none";
+      docElem.otaFileSection.style.display = "none";
+    }
   } catch {
+    docElem.otaBoard.textContent = "unknown";
     docElem.otaCurrentVersion.textContent = "unknown";
   }
 }
@@ -98,7 +107,7 @@ async function loadCurrentVersion() {
 function uploadBlob(blob) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/ota");
+    xhr.open("POST", "/api/firmware");
     xhr.upload.addEventListener("progress", e => {
       if (e.lengthComputable) {
         setStatus(`Uploading… ${Math.round((e.loaded / e.total) * 100)}%`);
@@ -200,6 +209,51 @@ async function doUploadFile() {
   }
 }
 
+async function fetchAndFlash(url, label) {
+  setStatus("Downloading firmware…");
+  let blob;
+  try {
+    const res = await fetch(url);
+    if (res.status === 403) {
+      setStatus(`Source refused: ${await res.text()}`);
+      return;
+    }
+    if (!res.ok) {
+      throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+    }
+    const total = Number(res.headers.get("Content-Length")) || 0;
+    const reader = res.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      chunks.push(value);
+      loaded += value.length;
+      setStatus(
+        total ? `Downloading… ${Math.round((loaded / total) * 100)}%` : `Downloading… ${Math.round(loaded / 1024)} KB`,
+      );
+    }
+    blob = new Blob(chunks);
+  } catch (e) {
+    setStatus(e instanceof TypeError ? "Fetch failed (network error or CORS)." : e.message);
+    return;
+  }
+  const info = await inspectFirmware(blob);
+  const sizeKb = Math.round(blob.size / 1024);
+  if (
+    !confirm(
+      `Flash firmware from ${label}\n${firmwareConfirmLine(info)}Size: ${sizeKb} KB\n\nThis will reboot the device.`,
+    )
+  ) {
+    setStatus(undefined);
+    return;
+  }
+  await flash(blob);
+}
+
 async function doFetchAndUpload() {
   const url = docElem.otaUrl.value.trim();
   if (!url) {
@@ -209,36 +263,9 @@ async function doFetchAndUpload() {
     setStatus("URL must start with http:// or https://.");
     return;
   }
-  const filename = url.split("/").pop().split("?")[0] || "firmware.bin";
   setBusy(true);
   try {
-    setStatus("Fetching…");
-    let blob;
-    try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
-      }
-      blob = await res.blob();
-    } catch (e) {
-      setStatus(
-        e instanceof TypeError
-          ? "Fetch failed (network error or CORS — download the file and upload it directly)."
-          : e.message,
-      );
-      return;
-    }
-    const info = await inspectFirmware(blob);
-    const sizeKb = Math.round(blob.size / 1024);
-    if (
-      !confirm(
-        `Fetch and flash:\n${filename}\n${firmwareConfirmLine(info)}Size: ${sizeKb} KB\n\nThis will reboot the device.`,
-      )
-    ) {
-      setStatus(undefined);
-      return;
-    }
-    await flash(blob);
+    await fetchAndFlash(url, url);
   } finally {
     setBusy(false);
   }
@@ -248,13 +275,14 @@ function switchToFileMode() {
   document.querySelector("input[name=otaMode][value=file]").click();
 }
 
+function switchMode(mode) {
+  docElem.otaFileSection.style.display = mode === "file" ? "" : "none";
+  docElem.otaUrlSection.style.display = mode === "url" ? "" : "none";
+  setStatus(undefined);
+}
+
 document.querySelectorAll("input[name=otaMode]").forEach(radio => {
-  radio.addEventListener("change", () => {
-    const isUrl = radio.value === "url";
-    docElem.otaFileSection.style.display = isUrl ? "none" : "";
-    docElem.otaUrlRow.style.display = isUrl ? "" : "none";
-    setStatus(undefined);
-  });
+  radio.addEventListener("change", () => switchMode(radio.value));
 });
 
 function isFileLikeDrag(types) {

@@ -6,13 +6,13 @@
 [env:kikker-x-timercam-living-room]
 extends = kikker-x-timercam
 custom_config_files =
-    configs/default_config.json
     configs/custom/home_config.json
     configs/custom/living_room_config.json
+custom_config_policy = STORE_EMBEDDED
 
 [env:kikker-x-wrovercam-bedroom]
 extends = kikker-x-wrovercam
 custom_config_files =
-    configs/default_config.json
     configs/custom/home_config.json
     configs/custom/bedroom_config.json
+custom_config_policy = STORE_EMBEDDED

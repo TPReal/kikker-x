@@ -7,7 +7,7 @@
 // Cross-origin thumbnails are fetched via fetch() with an explicit Authorization header.
 
 import { getPageOptions, patchPageOptions } from "/page_options.mjs";
-import { docElem } from "/util.mjs";
+import { compareVersion, docElem } from "/util.mjs";
 
 function randomId() {
   return Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
@@ -365,18 +365,6 @@ const corsCameras = new Map();
 // removed cameras can't keep flagging others as outdated.
 const cameraVersions = new Map();
 
-function compareVersion(a, b) {
-  const aa = a.split(".").map(Number);
-  const bb = b.split(".").map(Number);
-  for (let i = 0; i < Math.max(aa.length, bb.length); i++) {
-    const d = (aa[i] || 0) - (bb[i] || 0);
-    if (d !== 0) {
-      return Math.sign(d);
-    }
-  }
-  return 0;
-}
-
 function maxReportedVersion() {
   let max = null;
   for (const v of cameraVersions.values()) {
@@ -399,7 +387,13 @@ function updateOutdatedIndicators() {
     }
     const myVer = card.dataset.version;
     if (max && compareVersion(myVer, max) < 0) {
-      btn.title = `Firmware v${myVer} is lower than v${max} detected on another camera — click to open the update page.`;
+      if (card.dataset.allowOta) {
+        btn.title = `Firmware v${myVer} is lower than v${max} detected on another camera — click to open the update page.`;
+        btn.disabled = false;
+      } else {
+        btn.title = `Firmware v${myVer} is lower than v${max} detected on another camera.\nOTA updates are disabled on this device.`;
+        btn.disabled = true;
+      }
       btn.hidden = false;
     } else {
       btn.hidden = true;
@@ -1036,6 +1030,7 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
       if (data.version) {
         cameraVersions.set(cam.url, data.version);
         card.dataset.version = data.version;
+        card.dataset.allowOta = data.allow_ota !== false ? "1" : "";
         updateOutdatedIndicators();
       }
     } catch (e) {

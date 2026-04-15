@@ -31,6 +31,7 @@ function loadStatus() {
           : `${d.wifi.ssid} · ${d.wifi.ip} · ${d.wifi.rssi} dBm`;
       docElem.statusWifi.textContent = wifiText;
       docElem.statusVerText.textContent = `v${d.version}`;
+      docElem.otaLink.style.display = d.allow_ota === false ? "none" : "";
     })
     .catch(() => {
       ["statusBat", "statusBoard", "statusId", "statusWifi", "statusVerText"].forEach(id => {

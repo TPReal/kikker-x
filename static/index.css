@@ -6,7 +6,6 @@
 .links {
   display: flex;
   gap: 10px;
-  margin-bottom: 0;
 }
 .links a {
   flex: 1;
@@ -26,6 +25,7 @@
 }
 .page-link {
   display: block;
+  margin: 8px 0;
   font-size: 12px;
   color: #888;
   text-decoration: underline;
@@ -34,12 +34,6 @@
 .page-link:hover {
   color: #ccc;
   text-decoration-color: #888;
-}
-.hub-link {
-  margin: 8px 0 16px;
-}
-.logs-link {
-  margin: -16px 0 24px;
 }
 .ota-inline-link {
   margin-left: 6px;
@@ -58,7 +52,6 @@
   gap: 2px 12px;
   color: #999;
   font-size: 12px;
-  margin-bottom: 24px;
 }
 .sl {
   color: #666;
@@ -81,12 +74,13 @@ h2 {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin: 0 0 12px;
+  margin: 16px 0 12px;
 }
 .section-hd {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-top: 16px;
 }
 .section-hd h2 {
   margin: 0 0 12px;

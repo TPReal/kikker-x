@@ -1,3 +1,15 @@
+export function compareVersion(a, b) {
+  const aa = a.split(".").map(Number);
+  const bb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(aa.length, bb.length); i++) {
+    const d = (aa[i] || 0) - (bb[i] || 0);
+    if (d !== 0) {
+      return Math.sign(d);
+    }
+  }
+  return 0;
+}
+
 export const docElem = new Proxy(
   {},
   {

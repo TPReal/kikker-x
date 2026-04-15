@@ -9,6 +9,7 @@ import hashlib
 import inspect
 import os
 import re
+import time
 from typing import Any
 
 # PlatformIO/SCons globals injected at runtime.
@@ -25,6 +26,7 @@ frame = inspect.currentframe()
 assert frame is not None
 script_name = os.path.basename(inspect.getfile(frame))
 print(f"[{script_name}] Start")
+start = time.perf_counter()
 
 source_dir = os.path.join(env.get("PROJECT_DIR"), "static")
 out_dir = os.path.join(env.get("PROJECT_SRC_DIR"), "static")
@@ -100,4 +102,5 @@ with open(out_path, "w") as f:
 
 env.Append(EMBED_BINARYFILES=[os.path.join("src", "static", name + ".gz") for name, _ in all_assets])
 
-print(f"[{script_name}] Embedded {len(all_assets)} assets (gzip-compressed) from {source_dir}.")
+elapsed_ms = (time.perf_counter() - start) * 1000
+print(f"[{script_name}] Embedded {len(all_assets)} assets (gzip-compressed) from {source_dir} ({elapsed_ms:.0f} ms).")

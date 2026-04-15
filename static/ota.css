@@ -12,8 +12,16 @@
   font-size: 12px;
   color: #999;
 }
+.ota-current-line + .ota-current-line {
+  margin-top: -8px;
+}
 .ota-current-line span {
   color: #ccc;
+}
+.ota-download-link {
+  margin-left: 8px;
+  font-size: 11px;
+  color: #666;
 }
 .ota-file-version {
   margin-top: 6px;
@@ -102,4 +110,13 @@
 #otaFileRow.drag-over .ota-file {
   outline: 2px dashed #555;
   outline-offset: -2px;
+}
+.ota-disabled {
+  margin: 12px 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #c66;
+  background: #2a1a1a;
+  border: 1px solid #442222;
+  border-radius: 4px;
 }

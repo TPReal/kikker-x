@@ -35,7 +35,7 @@ Supported boards:
   reachable; switches back to station mode automatically when a known network reappears.
 - **mDNS**: reachable at `http://kikker-x.local/` or a custom hostname.
 - **Basic auth** (optional): username + SHA-256-hashed password in the config file.
-- **Over-the-air updates**: safely upload a new firmware image through the web UI or `/api/ota`.
+- **Over-the-air updates**: safely upload a new firmware image through the web UI or `/api/firmware`.
 - **Mobile-friendly UI**: responsive layout that works well on phones and tablets.
 - **Cameras Hub**: multi-camera dashboard showing live thumbnails and links for any number of KikkerX or other cameras.
   Runs embedded on every device at `/hub`, or standalone via `cameras_hub.py` on any machine.
@@ -182,7 +182,6 @@ battery-saving deep sleep between timelapse frames, and status logging.
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`_version.h`              | Generated at build time by `generate_version.py` (from `pyproject.toml`)                                                    |
 | `configs/`                                                    | Configuration files                                                                                                         |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`config.json.template`    | Documents all config fields with comments                                                                                   |
-| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`default_config.json`     | Default config (no WiFi, AP fallback enabled, no auth)                                                                      |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`platformio.ini`          | Local PlatformIO overrides — not committed (see template)                                                                   |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`platformio.ini.template` | Template for multi-device configs                                                                                           |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`README.md`               | Config system documentation                                                                                                 |

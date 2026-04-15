@@ -351,7 +351,7 @@ dialog h3 {
   letter-spacing: -1px;
   color: #b8a030;
 }
-.cam-outdated-btn:hover {
+.cam-outdated-btn:hover:not(:disabled) {
   color: #e6c840;
 }
 .cam-drag-handle:hover {

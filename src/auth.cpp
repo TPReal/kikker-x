@@ -54,7 +54,7 @@ bool authCheck(const String& authHeader) {
   hashHex[64] = '\0';
 
   // Constant-time compare — both strings are always exactly 64 hex chars.
-  const char* stored = getConfig().auth.pass_sha256;
+  const char* stored = getConfig().auth.password_sha256;
   if (!stored)
     return false;
   int diff = 0;

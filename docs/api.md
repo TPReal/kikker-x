@@ -26,6 +26,8 @@ curl "http://kikker-x.local/api/status"
 #      "id": "c0ffeefacade",
 #      "wifi": { "mode": "station", "ssid": "HomeNet", "ip": "192.168.1.50", "rssi": -52 },
 #      "version": "1.2.0",
+#      "config_policy": "LOAD_OR_USE_EMBEDDED",
+#      "allow_ota": true,
 #      "camera": "kikker-x",
 #      "features": { "board": "M5Stack Timer Camera X", "led": true, "battery": true } }
 ```
@@ -114,7 +116,7 @@ so the response confirms the request was received.
 ## Firmware update (OTA)
 
 ```sh
-curl -X POST "http://kikker-x.local/api/ota" \
+curl -X POST "http://kikker-x.local/api/firmware" \
   --data-binary @.pio/build/kikker-x-timercam-default/firmware.bin \
   -H "Content-Type: application/octet-stream"
 # → OTA update complete. Rebooting.

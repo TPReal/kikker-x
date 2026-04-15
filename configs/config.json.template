@@ -1,18 +1,20 @@
 {
 
   // mDNS address: registered as <value>.local, or null to disable mDNS.
+  // Default: null (mDNS disabled).
   "mdns": "kikker-x",
 
   // List of known networks. The device connects to the strongest visible one.
+  // Default: [] (no known networks — goes straight to AP fallback).
   "known_networks": [
     {
       "ssid": "WifiName",
       "password": "WifiPassword (can be obscured like this: \u0070\u0061\u0073\u0073)"
       // Optional static IP configuration (uncomment to use):
       // "static_ip": "192.168.1.100",
-      // "subnet_mask": "255.255.255.0",
-      // "gateway": "192.168.1.1",
-      // "dns": "8.8.8.8"
+      // "subnet_mask": "255.255.255.0",  (default: 255.255.255.0)
+      // "gateway": "192.168.1.1",        (default: same as static_ip)
+      // "dns": "8.8.8.8"                 (default: 8.8.8.8)
     }
     // More known networks:
     // , { "ssid": "...", "password": "..." }
@@ -21,31 +23,37 @@
   // Access point to start when no known network is reachable (or none is configured).
   // The device will switch back to station mode automatically once a known
   // network becomes visible again.
-  // Remove or set to null to disable AP fallback (device retries indefinitely).
+  //
+  // Set password to "RANDOM" to keep a custom SSID with a random password.
+  // Set to false to disable AP fallback entirely (device retries WiFi indefinitely).
+  //
+  // Default (if omitted): SSID "KikkerX" with a random 12-character password
+  // generated at each boot and printed to the serial console.
   "fallback_access_point": {
     "ssid": "KikkerX",
-    "password": "your-ap-password (or \"RANDOM\" to generate one at boot and print it to serial)"
+    "password": "your-ap-password (or \"RANDOM\" to generate one at boot)"
   },
 
   // Allow cross-origin requests (CORS). Set to false to disable Access-Control-Allow-Origin headers.
   // When disabled, the Cameras Hub can still display thumbnails via <img>, but cannot send auth
   // headers, read error details, or fetch status information for this camera.
+  // Default: true.
   "allow_cors": true,
 
   // Authentication for the web interface.
-  // To disable auth, set auth to null:
-  //   "auth": null,
+  // Default: null (auth disabled — all requests are allowed).
   //
   // Generate the password hash (password entered without echo):
   //   IFS= read -rsp 'Password: ' pass && echo && printf '%s' "$pass" | sha256sum | cut -d' ' -f1; unset pass
   //
   "auth": {
     "username": "admin",
-    "pass_sha256": "your-sha256-hash-here"
+    "password_sha256": "your-sha256-hash-here"
   },
 
-  // Allow firmware updates over-the-air via POST /api/ota and the web UI upload button.
+  // Allow firmware updates over-the-air via POST /api/firmware and the web UI upload button.
   // Set to false to permanently disable the endpoint (returns 404).
+  // Default: true.
   "allow_ota": true
 
 }

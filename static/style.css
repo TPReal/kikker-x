@@ -146,8 +146,12 @@ button:disabled {
   min-width: 16px;
   text-align: center;
 }
-.icon-btn:hover {
+.icon-btn:hover:not(:disabled) {
   color: #aaa;
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .bar label,
 .bar .icon-btn {

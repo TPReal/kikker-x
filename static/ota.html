@@ -14,8 +14,11 @@
   <body>
     <div class="page">
       <h1><a href="/" style="color: #fff; text-decoration: none">⇦</a> Firmware Update</h1>
-      <p class="ota-current-line">Current firmware: <span id="otaCurrentVersion">…</span></p>
-      <div class="ota-mode-row">
+      <p class="ota-current-line">Board: <span id="otaBoard">…</span></p>
+      <p class="ota-current-line">Current firmware: <span id="otaCurrentVersion">…</span>
+        <a id="otaDownload" href="/api/firmware" download="firmware.bin" class="ota-download-link" hidden>download firmware</a></p>
+      <p id="otaDisabled" class="ota-disabled" hidden>OTA updates are disabled in this device's configuration.</p>
+      <div id="otaModeRow" class="ota-mode-row">
         <label class="ota-mode-opt">
           <input type="radio" name="otaMode" value="file" checked />
           Upload file
@@ -25,20 +28,25 @@
           Fetch from URL
         </label>
       </div>
-      <p class="ota-hint">
-        Flash new firmware onto the device. The file is typically named <code>firmware.bin</code> and
-        is produced by the build.
-      </p>
       <div id="otaFileSection">
+        <p class="ota-hint">
+          Select a firmware file (<code>.bin</code>) produced by the build and upload it to the device.
+        </p>
         <div id="otaFileRow" class="btn-row">
           <input type="file" id="otaFile" class="ota-file" accept=".bin" />
           <button type="button" id="otaBtn" class="restart-btn ota-btn" disabled>Flash</button>
         </div>
         <div id="otaFileVersion" class="ota-file-version" hidden></div>
       </div>
-      <div id="otaUrlRow" class="btn-row" style="display:none">
-        <input type="url" id="otaUrl" class="ota-url-input" placeholder="https://…/firmware.bin" />
-        <button type="button" id="otaFetchBtn" class="restart-btn ota-btn" disabled>Fetch & Flash</button>
+      <div id="otaUrlSection" style="display:none">
+        <p class="ota-hint">
+          Enter a direct URL to a firmware <code>.bin</code> file. It will be fetched by the browser and uploaded to the
+          device.
+        </p>
+        <div id="otaUrlRow" class="btn-row">
+          <input type="url" id="otaUrl" class="ota-url-input" placeholder="https://…/firmware.bin" />
+          <button type="button" id="otaFetchBtn" class="restart-btn ota-btn" disabled>Fetch & Flash</button>
+        </div>
       </div>
       <div id="otaStatus"></div>
       <div id="otaPath" hidden></div>
