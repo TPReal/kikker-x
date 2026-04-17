@@ -30,10 +30,20 @@ with open(os.path.join(env.get("PROJECT_DIR"), "pyproject.toml"), "rb") as f:
 version = pyproject["project"]["version"]
 
 header_path = os.path.join(env.get("PROJECT_DIR"), "src", "_version.h")
-with open(header_path, "w") as f:
-    f.write(
-        "// Generated from pyproject.toml by generate_version.py. Do not edit.\n"
-        "#pragma once\n"
-        f'#define FIRMWARE_VERSION "{version}"\n'
-    )
-print(f"[{script_name}] Wrote src/_version.h (version {version})")
+content = (
+    "// Generated from pyproject.toml by generate_version.py. Do not edit.\n"
+    "#pragma once\n"
+    f'#define FIRMWARE_VERSION "{version}"\n'
+)
+# Skip the write when content is unchanged — avoids mtime bumps that would
+# invalidate the build cache on every run.
+existing = None
+if os.path.exists(header_path):
+    with open(header_path) as f:
+        existing = f.read()
+if existing == content:
+    print(f"[{script_name}] src/_version.h already up to date (version {version})")
+else:
+    with open(header_path, "w") as f:
+        f.write(content)
+    print(f"[{script_name}] Wrote src/_version.h (version {version})")

@@ -58,14 +58,12 @@ print(f"[{script_name}] Policy: {policy} (={policy_index})")
 dst_path = os.path.join(env.get("PROJECT_SRC_DIR"), "_config.json")
 
 if policy in NO_CONFIG_POLICIES:
-    # No embedded config — write empty JSON so INCBIN still has a file.
+    # No embedded config — write an empty file (INCBIN still needs the file to exist).
     raw_files = env.GetProjectOption("custom_config_files", "")
     config_files = [f.strip() for f in raw_files.split("\n") if f.strip()]
     if config_files:
         print(f"[{script_name}] Warning: custom_config_files ignored with {policy} policy")
-    with open(dst_path, "w", encoding="utf-8") as f:
-        f.write("{}")
-    print(f"[{script_name}] Wrote empty {dst_path}")
+    content = ""
 else:
     # Read custom_config_files from the PlatformIO environment.
     raw_files = env.GetProjectOption("custom_config_files", "")
@@ -84,7 +82,17 @@ else:
         with open(src_path, "r", encoding="utf-8") as f:
             merged |= json.load(f)
         print(f"[{script_name}] Merged {src_path}")
+    content = json.dumps(merged, separators=(",", ":"))
 
+# Skip the write when content is unchanged — avoids mtime bumps that would
+# invalidate the build cache on every run.
+existing = None
+if os.path.exists(dst_path):
+    with open(dst_path, "r", encoding="utf-8") as f:
+        existing = f.read()
+if existing == content:
+    print(f"[{script_name}] {dst_path} already up to date")
+else:
     with open(dst_path, "w", encoding="utf-8") as f:
-        json.dump(merged, f, separators=(",", ":"))
+        f.write(content)
     print(f"[{script_name}] Wrote {dst_path}")

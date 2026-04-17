@@ -1,0 +1,274 @@
+.cfg-page {
+  max-width: 1200px;
+}
+.cfg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 12px;
+}
+.cfg-meta .cfg-meta-label {
+  color: #555;
+  margin-right: 4px;
+}
+.cfg-meta code {
+  color: #bbb;
+  font-size: 12px;
+}
+.cfg-hint {
+  font-size: 11px;
+  color: #666;
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.cfg-hint code {
+  color: #888;
+  font-size: 11px;
+}
+.cfg-controls {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: #aaa;
+  margin: 0 0 14px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cfg-controls label {
+  cursor: pointer;
+}
+.cfg-controls input {
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* --- Grid layout ---
+   Three columns: left (1), diff indicators (2), right (3). Items are produced
+   in DOM order by column (col 1 first, then col 2 with spacers filling the
+   header/brace rows, then col 3). Grid flow is column-based, with the row
+   count supplied via --rows set by JS (header + "{" + N fields + "}"). */
+
+.cfg-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  grid-template-rows: repeat(var(--rows, 1), auto);
+  grid-auto-flow: column;
+  column-gap: 6px;
+  row-gap: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+@media (max-width: 640px) {
+  .cfg-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-auto-flow: row;
+  }
+}
+
+/* Invisible placeholders in col 2 for the header/brace rows — present so every
+   column has the same item count under grid-auto-flow: column. */
+.cfg-diff.cfg-diff-spacer {
+  visibility: hidden;
+}
+
+/* --- Column header: label + version + "active" tag for the active column. --- */
+
+.cfg-col-hd {
+  background: #1a1a1a;
+  border: 1px solid #262626;
+  border-radius: 4px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-family: system-ui, sans-serif;
+}
+.cfg-col-hd h2 {
+  margin: 0;
+  font-size: 13px;
+  color: #ddd;
+}
+.cfg-col-hd .cfg-version {
+  font-size: 11px;
+  color: #666;
+  font-weight: normal;
+}
+.cfg-col-hd .cfg-version.cfg-version-mismatch {
+  color: #c88;
+}
+
+/* Active column header — green-tinted. */
+.cfg-col-hd.cfg-active {
+  border-color: #3d5a2a;
+  background: #15231a;
+}
+/* The "active"/"inactive" tag text is emitted by JS; colour comes from
+   the cfg-active class on the column header. */
+
+/* --- Braces: "{" and "}" — part of the JSON, selectable.
+   Same framing as field blocks, but never green (not a comparison unit). --- */
+
+.cfg-brace {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 3px 10px;
+  color: #666;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* --- Field block (wrapper around a <pre> + optional tag) --- */
+
+.cfg-field {
+  position: relative;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 3px 10px;
+}
+
+/* The "= default" tag floats in the top-right and is not part of JSON copy. */
+.cfg-tag-default {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  font-size: 10px;
+  color: #555;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* --- JSON body (selectable) --- */
+
+.cfg-json {
+  margin: 0;
+  padding: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: inherit;
+  line-height: inherit;
+  color: #ccc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cfg-json.cfg-empty {
+  color: #555;
+  font-style: italic;
+}
+.cfg-json .s {
+  color: #c9a;
+}
+.cfg-json .n {
+  color: #e9a;
+}
+.cfg-json .b {
+  color: #9c6;
+}
+.cfg-json .nul {
+  color: #777;
+}
+.cfg-json .k {
+  color: #8cc;
+}
+.cfg-json .cfg-section-key {
+  font-weight: bold;
+  color: #aee;
+}
+
+/* Per-field visual axes. JS applies classes for what's true about the field;
+   these rules translate class combinations into styles. Ordered after the base
+   .cfg-field/.cfg-tag-default/.cfg-json rules so descending-specificity lints
+   stay happy.
+   - cfg-active:           this field is on the active (winning) side
+   - cfg-default:          this field is on the Default column (DA mode, left)
+   - cfg-different:        this field differs from its neighbor (symmetric)
+   - cfg-equal-to-default: this field equals the firmware default */
+
+/* Green border only when the field is on the active side AND differs. */
+.cfg-field.cfg-active.cfg-different {
+  border-color: #3d5a2a;
+}
+
+/* Dim any field equal to default — covers every field on the Default side too. */
+.cfg-field.cfg-equal-to-default .cfg-json {
+  opacity: 0.45;
+}
+
+/* "= default" tag is redundant on the Default column — hide it there. */
+.cfg-field.cfg-default .cfg-tag-default {
+  display: none;
+}
+.cfg-field.cfg-unavailable {
+  border-style: dashed;
+}
+
+/* --- Diff indicator column: ≠ when fields differ, = when they match. --- */
+
+.cfg-diff {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 18px;
+  /* line-height: 1 keeps the 18px glyph from stretching the row height past
+     the field cells, so single-line rows don't jump taller when a diff is present. */
+  line-height: 1;
+  min-width: 22px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cfg-diff.cfg-different {
+  color: #a89043;
+}
+.cfg-diff.cfg-equal {
+  color: #555;
+}
+
+/* On narrow viewports the grid drops to a single column stack; the diff
+   column is irrelevant there, and the right source needs breathing room so
+   it doesn't look like a continuation of the left one. The general sibling
+   selector picks the second (right) column header — the first one preceded
+   by another — and pushes it down. These rules must come after the base
+   .cfg-diff (same specificity, last one wins). */
+@media (max-width: 640px) {
+  .cfg-diff {
+    display: none;
+  }
+  .cfg-col-hd ~ .cfg-col-hd {
+    margin-top: 24px;
+  }
+}
+
+/* --- Tags in column header (not selectable) --- */
+
+.cfg-tag {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cfg-tag-active {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #666;
+  margin-left: auto;
+  font-family: system-ui, sans-serif;
+}
+.cfg-col-hd.cfg-active .cfg-tag-active {
+  color: #9c6;
+}
+
+/* --- Error --- */
+
+.cfg-error {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #c66;
+  background: #2a1a1a;
+  border: 1px solid #442222;
+  border-radius: 4px;
+}

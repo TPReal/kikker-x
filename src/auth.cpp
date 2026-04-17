@@ -6,7 +6,7 @@
 #include "config.h"
 
 bool authCheck(const String& authHeader) {
-  if (getConfig().auth.username == nullptr)
+  if (getActiveConfig().auth.username.empty())
     return true;
 
   if (!authHeader.startsWith("Basic "))
@@ -32,8 +32,9 @@ bool authCheck(const String& authHeader) {
     return false;
 
   // Verify username (constant-time length + content check)
+  const string& user = getActiveConfig().auth.username;
   size_t userLen = (size_t)colon;
-  if (userLen != strlen(getConfig().auth.username) || memcmp(decoded, getConfig().auth.username, userLen) != 0)
+  if (userLen != user.size() || memcmp(decoded, user.c_str(), userLen) != 0)
     return false;
 
   // SHA-256 the received password
@@ -54,8 +55,8 @@ bool authCheck(const String& authHeader) {
   hashHex[64] = '\0';
 
   // Constant-time compare — both strings are always exactly 64 hex chars.
-  const char* stored = getConfig().auth.password_sha256;
-  if (!stored)
+  const string& stored = getActiveConfig().auth.password_sha256;
+  if (stored.empty())
     return false;
   int diff = 0;
   for (int i = 0; i < 64; i++)

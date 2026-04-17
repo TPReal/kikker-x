@@ -2,8 +2,11 @@
 
 import getpass
 import sys
+import tomllib
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Files served without authentication on all KikkerX servers (camera, fake, hub).
 # Browsers fetch these for PWA/icon support before any login prompt.
@@ -41,6 +44,13 @@ def serve_static(handler: BaseHTTPRequestHandler, filename: str, dirs: list[Path
         handler.wfile.write(data)
         return True
     return False
+
+
+def read_firmware_version() -> str:
+    """Read the project version from pyproject.toml — used by Python servers to
+    report the same FIRMWARE_VERSION string that the C++ firmware embeds."""
+    with (_PROJECT_ROOT / "pyproject.toml").open("rb") as f:
+        return tomllib.load(f)["project"]["version"]
 
 
 def resolve_password(arg: str | None, username: str, context: str = "") -> str:

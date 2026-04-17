@@ -32,8 +32,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from pathlib import Path
 
-from pylib import PUBLIC_FILES, resolve_password, serve_static
+from pylib import PUBLIC_FILES, read_firmware_version, resolve_password, serve_static
 
+
+_FIRMWARE_VERSION: str = read_firmware_version()
 
 OPEN_ACCESS_USERNAME = "*"
 
@@ -275,6 +277,7 @@ def make_handler(
             if path == "/api/hub/status":
                 resp: dict = {
                     "isStandalone": True,
+                    "version": _FIRMWARE_VERSION,
                     "store": {
                         "read": store_path is not None,
                         "write": auth_write is not None,

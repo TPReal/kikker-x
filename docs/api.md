@@ -23,13 +23,13 @@ and a visible error on auth failures or other HTTP errors.
 ```sh
 curl "http://kikker-x.local/api/status"
 # → { "battery": { "voltage": 3850, "level": 75 },
-#      "id": "c0ffeefacade",
-#      "wifi": { "mode": "station", "ssid": "HomeNet", "ip": "192.168.1.50", "rssi": -52 },
-#      "version": "1.2.0",
-#      "config_policy": "LOAD_OR_USE_EMBEDDED",
-#      "allow_ota": true,
-#      "camera": "kikker-x",
-#      "features": { "board": "M5Stack Timer Camera X", "led": true, "battery": true } }
+#     "id": "c0ffeefacade",
+#     "wifi": { "mode": "station", "ssid": "HomeNet", "ip": "192.168.1.50", "rssi": -52 },
+#     "version": "1.2.0",
+#     "config_policy": "LOAD_OR_USE_EMBEDDED",
+#     "allow_ota": true,
+#     "camera": "kikker-x",
+#     "features": { "board": "M5Stack Timer Camera X", "led": true, "battery": true } }
 ```
 
 `battery` is omitted for boards without battery monitoring. `features.led` and `features.battery` indicate which
@@ -54,6 +54,45 @@ curl "http://kikker-x.local/api/status?mode=short_text"
 `short` returns a JSON subset. `short_text` returns a plain-text one-liner — useful for logging alongside recordings
 (see `--status-url` in [video-saver.md](video-saver.md)). Both omit `rssi` in AP mode and omit `battery` on boards
 without battery monitoring.
+
+---
+
+## Configuration
+
+```sh
+curl "http://kikker-x.local/api/config"
+# → { "policy": "LOAD_OR_USE_EMBEDDED",
+#     "active_source": "stored",
+#     "schema_version": 2,
+#     "stored":   { "is_active": true,  "schema_version": 2, "config": { "mdns": "kikker-x", ... } },
+#     "embedded": { "is_active": false, "schema_version": 2, "config": { "mdns": "kikker-x", ... } },
+#     "default":  { "is_active": false, "schema_version": 2, "config": { "mdns": null,        ... } } }
+```
+
+Inspect what the device is running on. The response lists the three possible config sources, which ones are active, and
+which one is the primary read source. For more information about the config and config policies, see
+[configs/README.md](../configs/README.md).
+
+- `policy` — compile-time `CONFIG_POLICY` name (e.g. `USE_EMBEDDED`, `LOAD_OR_USE_DEFAULT`).
+- `active_source` — `"stored"`, `"embedded"`, or `"default"`: the single source the firmware reads at runtime. Useful as
+  a canonical pick (e.g. "show me the active config") — `data[active_source].config`.
+- `schema_version` (top level) — the firmware's current `CONFIG_SCHEMA_VERSION`.
+- `stored` — NVS-stored config, or `null` when NVS has no entry. `stored.config` is `null` if `stored.schema_version`
+  doesn't match the top-level `schema_version` (it's preserved for inspection but ignored at runtime).
+- `embedded` — firmware-embedded config, or `null` when the policy doesn't use it (`LOAD_OR_USE_DEFAULT`,
+  `LOAD_OR_FAIL`). If embedded is present but fails to parse, the device shuts down rather than serving this response.
+- `default` — always present; the firmware defaults (as if `_config.json` were `{}`). Useful for showing which settings
+  differ from defaults.
+- Each source entry also carries `is_active: bool` — true when the policy keeps that source in sync with the runtime
+  config this boot (either read, or written by a `STORE_*` policy). Typically only one source is active, but in
+  `STORE_EMBEDDED` (always) and `LOAD_OR_STORE_EMBEDDED` (on NVS miss) both `embedded` (read) and `stored` (written) are
+  flagged active — the policy mirrors embedded into NVS every boot.
+
+Passwords are redacted to `"***"` (or `"RANDOM"` for an AP fallback configured to generate one at boot). Password hashes
+are shown as the first 6 hex chars followed by `***`.
+
+There is no write endpoint; configs are updated by reflashing (see [configs/README.md](../configs/README.md)) or by
+writing to NVS via a `LOAD_OR_*` policy.
 
 ---
 
@@ -164,10 +203,11 @@ curl "http://kikker-x.local/api/hub/status"
 # → { "isStandalone": false, "store": { "read": true } }
 
 curl "http://hub-server:8765/api/hub/status"
-# → { "isStandalone": true, "store": { "read": true, "write": true } }
+# → { "isStandalone": true, "version": "1.5.0", "store": { "read": true, "write": true } }
 ```
 
-Returns hub metadata. `isStandalone` is `false` on the device and `true` on the standalone server. `store.read`
+Returns hub metadata. `isStandalone` is `false` on the device and `true` on the standalone server. `version` is the
+standalone server's version (absent on the device; the device reports its version via `/api/status`). `store.read`
 indicates the store can be read (`GET /api/hub/store`); `store.write` indicates it can also be written
 (`PUT /api/hub/store`). Both default to `false` when absent.
 

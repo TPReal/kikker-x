@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KikkerX — Configuration</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#103a1c" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/index.css" />
+    <link rel="stylesheet" href="/config.css" />
+  </head>
+  <body>
+    <div class="page cfg-page">
+      <h1><a href="/" style="color: #fff; text-decoration: none">⇦</a> Configuration</h1>
+      <div id="cfgMeta" class="cfg-meta">Loading…</div>
+      <p class="cfg-hint">
+        Passwords are redacted. For comparison purposes, redacted values are compared literally — two
+        <code>"***"</code> entries are treated as equal even if the underlying passwords differ.
+      </p>
+      <div id="cfgControls" class="cfg-controls" hidden>
+        <label><input type="radio" name="cfgMode" value="se" checked /> Stored vs Embedded</label>
+        <label><input type="radio" name="cfgMode" value="da" /> Default vs Active</label>
+      </div>
+      <div id="cfgGrid" class="cfg-grid" hidden></div>
+      <div id="cfgError" class="cfg-error" hidden></div>
+    </div>
+    <script type="module" src="/config.mjs"></script>
+  </body>
+</html>

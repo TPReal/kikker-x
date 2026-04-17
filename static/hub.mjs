@@ -18,7 +18,7 @@ const STORE_VERSION = 1;
 const DEFAULT_INTERVAL = 0;
 
 // Hub status received from /api/hub/status, with defaults applied.
-let g_hubStatus = { isStandalone: true, store: { read: false, write: false } };
+let g_hubStatus = { isStandalone: true, version: null, store: { read: false, write: false } };
 
 // Cached server credentials (read = GET /api/hub/store, write = PUT).
 // Write falls back to read if not separately prompted.
@@ -117,6 +117,7 @@ function basicAuthHeader(creds) {
 function parseStatus(raw) {
   return {
     isStandalone: raw?.isStandalone !== false,
+    version: typeof raw?.version === "string" ? raw.version : null,
     store: {
       read: raw?.store?.read === true,
       write: raw?.store?.write === true,
@@ -1186,6 +1187,10 @@ applyInterval(loadInterval());
 
 if (!g_hubStatus.isStandalone) {
   docElem.homeLink.hidden = false;
+}
+if (g_hubStatus.version) {
+  docElem.hubVersion.textContent = `v${g_hubStatus.version}`;
+  docElem.hubVersion.hidden = false;
 }
 
 function applyRoleToUI() {

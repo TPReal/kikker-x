@@ -60,8 +60,8 @@ Complications:
   revert).
 - **Auth reconfiguration.** If the user changes `auth.password_sha256` and gets it wrong, they're locked out. Same
   serial/reflash escape hatch applies.
-- **Schema version.** On `CONFIG_VERSION` bump, the stored config is already discarded at load time. Patching should
-  preserve whatever forward-compat behaviour we decide on.
+- **Schema version.** On `CONFIG_SCHEMA_VERSION` bump, the stored config is already discarded at load time. Patching
+  should preserve whatever forward-compat behaviour we decide on.
 
 The cheaper narrow alternative: `POST /api/wifi` that takes just an SSID + password and writes only `known_networks` —
 covers the most-common remote change without the general config-editing attack surface.

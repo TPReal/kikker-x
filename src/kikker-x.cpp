@@ -10,6 +10,7 @@
  *
  * API endpoints:
  *   GET   /api/status                            → JSON {battery, id, wifi, version}
+ *   GET   /api/config                            → JSON {policy, source, config, …}
  *   POST  /api/restart                           → reboot the ESP32
  *   GET   /api/firmware                            → download running firmware (if policy allows)
  *   POST  /api/firmware                           → stream firmware binary; reboots on success
@@ -271,7 +272,7 @@ void setup() {
     Log.printf("Partition: %s @ 0x%x, OTA status: %s\n", part->label, (unsigned)part->address, state_str);
   }
   Log.printf("KikkerX v%s\n", FIRMWARE_VERSION);
-  getConfig();  // parse and cache early so log output appears at startup
+  getActiveConfig();  // parse and cache early so log output appears at startup
   boardBegin();
 
   cameraMutex = xSemaphoreCreateMutex();
@@ -288,7 +289,7 @@ void setup() {
   WiFi.setTxPower(WIFI_TX_POWER);
 
   server.begin();
-  g_mdnsName = getConfig().mdns ? getConfig().mdns : "";
+  g_mdnsName = getActiveConfig().mdns.c_str();
   if (wifiIsAP()) {
     Log.printf("Camera server ready in AP mode at http://%s/\n", WiFi.softAPIP().toString().c_str());
   } else {
@@ -351,7 +352,7 @@ static String readBody(WiFiClient& client, int len) {
 }
 
 static void printCors(WiFiClient& client, const String& origin) {
-  if (origin.length() > 0 && getConfig().allow_cors) {
+  if (origin.length() > 0 && getActiveConfig().allow_cors) {
     client.print("Access-Control-Allow-Origin: ");
     client.print(origin);
     client.print("\r\nVary: Origin\r\n");
@@ -472,7 +473,7 @@ class VersionScanner {
 };
 
 static void handleOTA(WiFiClient& client, int contentLength, const String& originHeader) {
-  if (!getConfig().allow_ota) {
+  if (!getActiveConfig().allow_ota) {
     send404(client, originHeader);
     return;
   }
@@ -994,7 +995,7 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
   cJSON_AddStringToObject(root, "camera", "kikker-x");
   cJSON_AddStringToObject(root, "version", FIRMWARE_VERSION);
   cJSON_AddStringToObject(root, "config_policy", getConfigPolicyName());
-  cJSON_AddBoolToObject(root, "allow_ota", getConfig().allow_ota);
+  cJSON_AddBoolToObject(root, "allow_ota", getActiveConfig().allow_ota);
   cJSON* features = cJSON_CreateObject();
   cJSON_AddStringToObject(features, "board", feat.name);
   cJSON_AddBoolToObject(features, "led", feat.led);
@@ -1016,6 +1017,65 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
 }
 
 // ---------------------------------------------------------------------------
+// API: config inspection
+// ---------------------------------------------------------------------------
+
+// Builds {"is_active": bool, "schema_version": N, "config": <raw redacted JSON | null>}.
+static cJSON* buildSourceEntry(const ConfigInfo& info) {
+  cJSON* obj = cJSON_CreateObject();
+  cJSON_AddBoolToObject(obj, "is_active", info.is_active);
+  cJSON_AddNumberToObject(obj, "schema_version", info.schema_version);
+  if (info.config) {
+    cJSON_AddItemToObject(obj, "config", cJSON_CreateRaw(info.config->redactedJSON.c_str()));
+  } else {
+    cJSON_AddNullToObject(obj, "config");
+  }
+  return obj;
+}
+
+static void handleConfig(WiFiClient& client, const String& origin) {
+  getActiveConfig();  // ensure active_source + is_active flags are set on the cached ConfigInfos
+  const ConfigInfo& embedded = getEmbeddedConfig();
+  const ConfigInfo& stored = getStoredConfig();
+  const ConfigInfo& defaults = getFirmwareDefaults();
+
+  cJSON* root = cJSON_CreateObject();
+  cJSON_AddStringToObject(root, "policy", getConfigPolicyName());
+  cJSON_AddStringToObject(root, "active_source", getConfigActiveSource());
+  cJSON_AddNumberToObject(root, "schema_version", CONFIG_SCHEMA_VERSION);
+
+  // stored: null when NVS is empty, else {is_active, schema_version, config (null if schema mismatch or parse fail)}.
+  if (stored.schema_version == 0) {
+    cJSON_AddNullToObject(root, "stored");
+  } else {
+    cJSON_AddItemToObject(root, "stored", buildSourceEntry(stored));
+  }
+
+  // embedded: null when policy doesn't use embedded (LOAD_OR_USE_DEFAULT, LOAD_OR_FAIL),
+  // else {is_active, schema_version, config}. Parse failure would have shut down the device.
+  if (embedded.schema_version == 0) {
+    cJSON_AddNullToObject(root, "embedded");
+  } else {
+    cJSON_AddItemToObject(root, "embedded", buildSourceEntry(embedded));
+  }
+
+  // default: always present — firmware defaults.
+  cJSON_AddItemToObject(root, "default", buildSourceEntry(defaults));
+
+  char* out = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-cache\r\n");
+  endHeaders(client, origin);
+  if (out) {
+    client.print(out);
+    free(out);
+  }
+  client.stop();
+  Log.println("→ 200 config");
+}
+
+// ---------------------------------------------------------------------------
 // API: hub status + store
 // ---------------------------------------------------------------------------
 
@@ -1032,11 +1092,11 @@ static void handleHubStore(WiFiClient& client, const String& origin) {
   endHeaders(client, origin);
   // "SELF" is a self-reference marker: the hub replaces it with window.location.origin
   // so the URL matches however the device was accessed (IP, mDNS, etc.).
-  const char* authUser = getConfig().auth.username;
-  if (authUser) {
+  const string& authUser = getActiveConfig().auth.username;
+  if (!authUser.empty()) {
     char macStr[13];
     getDeviceId(macStr);
-    cJSON* j = cJSON_CreateString(authUser);
+    cJSON* j = cJSON_CreateString(authUser.c_str());
     char* escapedUser = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     client.print("{\"version\":1,\"cameras\":[{\"url\":\"SELF\",\"type\":\"kikker-x\",\"authId\":\"auth-");
@@ -1491,7 +1551,7 @@ void loop() {
   // Handle CORS preflight before auth check — preflights carry no credentials.
   if (isOptions) {
     client.print("HTTP/1.1 204 No Content\r\n");
-    if (originHeader.length() > 0 && getConfig().allow_cors) {
+    if (originHeader.length() > 0 && getActiveConfig().allow_cors) {
       client.print("Access-Control-Allow-Origin: ");
       client.print(originHeader);
       client.print(
@@ -1599,6 +1659,8 @@ void loop() {
       handleHubStore(client, originHeader);
     } else if (path == "/api/status") {
       handleStatus(client, reqLine, originHeader);
+    } else if (path == "/api/config") {
+      handleConfig(client, originHeader);
     } else if (path == "/api/led") {
       if (!boardFeatures().led)
         send404(client, originHeader);

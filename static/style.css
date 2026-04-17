@@ -101,6 +101,12 @@ canvas {
   color: #fff;
   text-decoration: none;
 }
+.bar .nav-title .nav-version {
+  font-size: 12px;
+  font-weight: normal;
+  color: #888;
+  margin-left: 4px;
+}
 .bar-center {
   display: flex;
   align-items: center;

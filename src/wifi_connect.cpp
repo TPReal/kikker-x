@@ -23,14 +23,14 @@ bool wifiIsAP() {
 }
 
 static void applyIpConfig(const WifiEntry* e) {
-  if (e->static_ip) {
+  if (!e->static_ip.empty()) {
     IPAddress ip, gw, sn, dns;
-    ip.fromString(e->static_ip);
-    sn.fromString(e->subnet_mask ? e->subnet_mask : "255.255.255.0");
-    gw.fromString(e->gateway ? e->gateway : e->static_ip);
-    dns.fromString(e->dns ? e->dns : "8.8.8.8");
+    ip.fromString(e->static_ip.c_str());
+    sn.fromString(e->subnet_mask.c_str());
+    gw.fromString(e->gateway.c_str());
+    dns.fromString(e->dns.c_str());
     WiFi.config(ip, gw, sn, dns);
-    Log.printf("Static IP: %s\n", e->static_ip);
+    Log.printf("Static IP: %s\n", e->static_ip.c_str());
   } else {
     WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
   }
@@ -38,22 +38,22 @@ static void applyIpConfig(const WifiEntry* e) {
 
 // Try once to connect to e. Returns true on success.
 static bool connectTo(const WifiEntry* e, int scanRssi) {
-  Log.printf("Connecting to %s (RSSI %d)...\n", e->ssid, scanRssi);
+  Log.printf("Connecting to %s (RSSI %d)...\n", e->ssid.c_str(), scanRssi);
   WiFi.disconnect();
   delay(100);
   applyIpConfig(e);
-  WiFi.begin(e->ssid, e->password);
+  WiFi.begin(e->ssid.c_str(), e->password.c_str());
   WiFi.setSleep(false);
   for (int t = 0; t < CONNECT_TIMEOUT_S * 2; t++) {
     if (WiFi.status() == WL_CONNECTED) {
       WiFi.setTxPower(WIFI_POWER_19_5dBm);
       g_current = e;
-      Log.printf("Connected: %s  IP: %s  RSSI: %d\n", e->ssid, WiFi.localIP().toString().c_str(), WiFi.RSSI());
+      Log.printf("Connected: %s  IP: %s  RSSI: %d\n", e->ssid.c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
       return true;
     }
     delay(500);
   }
-  Log.printf("Timeout connecting to %s\n", e->ssid);
+  Log.printf("Timeout connecting to %s\n", e->ssid.c_str());
   return false;
 }
 
@@ -65,16 +65,14 @@ static const WifiEntry* scanPick(int* rssi) {
   const WifiEntry* chosen = nullptr;
   *rssi = -9999;
   if (found > 0) {
-    Config cfg = getConfig();
-    int ne = cfg.num_wifi_entries;
-    const WifiEntry* entries = cfg.wifi_entries;
+    const Config& cfg = getActiveConfig();
     for (int s = 0; s < found; s++) {
       String sid = WiFi.SSID(s);
       int r = WiFi.RSSI(s);
-      for (int e = 0; e < ne; e++) {
-        if (sid == entries[e].ssid && r > *rssi) {
+      for (const auto& e : cfg.wifi_entries) {
+        if (sid == e.ssid.c_str() && r > *rssi) {
           *rssi = r;
-          chosen = &entries[e];
+          chosen = &e;
         }
       }
     }
@@ -83,13 +81,13 @@ static const WifiEntry* scanPick(int* rssi) {
   return chosen;
 }
 
-static void startAP(const ApFallback* ap) {
+static void startAP(const ApFallback& ap) {
   WiFi.mode(WIFI_AP);
-  bool ok = ap->password ? WiFi.softAP(ap->ssid, ap->password) : WiFi.softAP(ap->ssid);
+  bool ok = ap.password.empty() ? WiFi.softAP(ap.ssid.c_str()) : WiFi.softAP(ap.ssid.c_str(), ap.password.c_str());
   if (ok) {
     g_apMode = true;
     g_current = nullptr;
-    Log.printf("AP mode: SSID=%s  IP=%s\n", ap->ssid, WiFi.softAPIP().toString().c_str());
+    Log.printf("AP mode: SSID=%s  IP=%s\n", ap.ssid.c_str(), WiFi.softAPIP().toString().c_str());
   } else {
     Log.println("AP start failed");
   }
@@ -100,11 +98,12 @@ void wifiConnect() {
   if (WiFi.getMode() & WIFI_MODE_AP)
     WiFi.softAPdisconnect(true);
 
-  const ApFallback* ap = getConfig().ap_fallback;
-  if (getConfig().num_wifi_entries == 0) {
-    if (ap) {
+  const Config& cfg = getActiveConfig();
+  bool hasAP = !cfg.ap_fallback.ssid.empty();
+  if (cfg.wifi_entries.empty()) {
+    if (hasAP) {
       Log.println("No WiFi networks configured — starting AP");
-      startAP(ap);
+      startAP(cfg.ap_fallback);
     } else {
       Log.println("No WiFi networks configured and no AP fallback");
     }
@@ -119,9 +118,9 @@ void wifiConnect() {
     if (e && connectTo(e, rssi))
       return;
 
-    if (attempt + 1 >= MAX_CONNECT_ATTEMPTS && ap) {
+    if (attempt + 1 >= MAX_CONNECT_ATTEMPTS && hasAP) {
       Log.printf("No known network found after %d attempts — starting AP\n", MAX_CONNECT_ATTEMPTS);
-      startAP(ap);
+      startAP(cfg.ap_fallback);
       return;
     }
     Log.printf("No known network found, retrying in %ds...\n", RETRY_DELAY_S);
@@ -139,7 +138,7 @@ bool wifiMaintain() {
       return false;
     lastApScanMs = now;
 
-    if (getConfig().num_wifi_entries == 0) {
+    if (getActiveConfig().wifi_entries.empty()) {
       return false;
     }
 
@@ -147,13 +146,11 @@ bool wifiMaintain() {
     int found = WiFi.scanNetworks();  // blocking
     bool knownVisible = false;
     if (found > 0) {
-      int ne;
-      const WifiEntry* entries = getConfig().wifi_entries;
-      ne = getConfig().num_wifi_entries;
+      const auto& entries = getActiveConfig().wifi_entries;
       for (int s = 0; s < found && !knownVisible; s++) {
         String sid = WiFi.SSID(s);
-        for (int e = 0; e < ne; e++) {
-          if (sid == entries[e].ssid) {
+        for (const auto& e : entries) {
+          if (sid == e.ssid.c_str()) {
             knownVisible = true;
             break;
           }
@@ -207,18 +204,16 @@ bool wifiMaintain() {
   int curRssi = WiFi.RSSI();
   const WifiEntry* bestEntry = nullptr;
   int bestRssi = curRssi + ROAM_THRESHOLD_DBM;
-  Config cfg = getConfig();
-  int ne = cfg.num_wifi_entries;
-  const WifiEntry* entries = cfg.wifi_entries;
+  const Config& cfg = getActiveConfig();
   for (int s = 0; s < n; s++) {
     String sid = WiFi.SSID(s);
     int r = WiFi.RSSI(s);
-    if (g_current && sid == g_current->ssid)
+    if (g_current && sid == g_current->ssid.c_str())
       continue;
-    for (int e = 0; e < ne; e++) {
-      if (sid == entries[e].ssid && r > bestRssi) {
+    for (const auto& e : cfg.wifi_entries) {
+      if (sid == e.ssid.c_str() && r > bestRssi) {
         bestRssi = r;
-        bestEntry = &entries[e];
+        bestEntry = &e;
       }
     }
   }
@@ -227,7 +222,7 @@ bool wifiMaintain() {
   if (!bestEntry)
     return false;
 
-  Log.printf("Roaming to %s (%d dBm, current %d dBm)\n", bestEntry->ssid, bestRssi, curRssi);
+  Log.printf("Roaming to %s (%d dBm, current %d dBm)\n", bestEntry->ssid.c_str(), bestRssi, curRssi);
   if (!connectTo(bestEntry, bestRssi))
     wifiConnect();
   lastRoamMs = millis();
