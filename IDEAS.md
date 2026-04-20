@@ -126,3 +126,42 @@ Complications that make this non-trivial:
 The current "!" button on outdated cards (which links to the card's own `/ota` page) covers the main case with much less
 complexity. A hub-side push only pays off when there are many cameras to update, and by then the "upload-once, push via
 `GET /api/firmware` from another camera" pattern already works.
+
+---
+
+## Standalone hub as a reverse proxy to LAN cameras
+
+When the cameras and a standalone hub are all on a home LAN and the user wants access from outside, tunnelling or VPN
+to the hub alone isn't enough — the hub page loads, but every camera card tries to hit the camera's LAN URL directly
+and fails. Today the workaround is to tunnel each camera separately, which scales badly.
+
+Proposed opt-in mode on `cameras_hub.py` (e.g. `--proxy-cameras`): for each camera in the store, bind a random local
+port on the hub and forward all traffic on that port to the camera's base URL. When the hub delivers the cameras list
+to the client (`/api/hub/store`), rewrite each camera's `url` to `{hub-origin}:{forwarded-port}`. The client then hits
+the hub on that port, the hub relays to the camera, and everything — pages, MJPEG streams, JPEG captures, API calls —
+flows through the one tunnelled hub endpoint.
+
+Doable, but with considerations:
+
+- **Many ports to expose.** Tunnels like cloudflared prefer a single hostname/port. Exposing N+1 ports through the
+  tunnel isn't always easy. A single-port alternative: path-based routing (e.g. `/proxy/<camera-id>/…`) — the hub
+  rewrites camera URLs to `{hub-origin}/proxy/<id>/`, and every inbound request under `/proxy/<id>/` is stripped of the
+  prefix and forwarded. One port to tunnel, but the URL rewriting has to be path-aware and some cameras may emit
+  absolute paths that need fixing.
+- **Auth layering.** The hub already caches per-camera credentials for `/api/hub/store`; the proxy can inject
+  `Authorization: Basic …` on outbound requests so the client no longer sees 401s per camera. Inbound access still
+  needs the hub's own read auth. This is arguably an _improvement_ over today — one login instead of one-per-camera.
+- **MJPEG streams.** Long-lived `multipart/x-mixed-replace` responses need the proxy to stream bytes without buffering.
+  `ThreadingHTTPServer` already gives us per-connection threads; the forwarder just copies the upstream body to the
+  client until either side disconnects.
+- **Host header / redirects.** The hub must rewrite the `Host` header on outbound requests (to the camera's actual
+  host), and rewrite any `Location:` headers on inbound responses so absolute redirects land back on the proxy.
+- **HTTPS mixed-content.** If the tunnel terminates TLS at the hub, the hub talks plain HTTP to the cameras internally
+  — fine, no mixed content.
+- **Persistence.** The port-per-camera binding should be stable across hub restarts (so client bookmarks don't break).
+  Stash the mapping in the store file, or derive a deterministic port from a hash of the camera URL within a declared
+  range.
+- **Self-camera edge case.** Cameras with `url: "SELF"` are already same-origin to the hub; they don't need proxying.
+
+Worth shipping as a CLI flag (`--proxy-cameras` / `--proxy-mode ports|paths`) so the default standalone hub stays
+simple and the tunnel use case picks it up explicitly.

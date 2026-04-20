@@ -306,7 +306,7 @@ dialog h3 {
 }
 .cam-drag-handle {
   cursor: grab;
-  color: #555;
+  color: #666;
   font-size: 15px;
   line-height: 1;
   user-select: none;

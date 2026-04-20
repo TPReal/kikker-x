@@ -10,7 +10,7 @@
   margin-bottom: 12px;
 }
 .cfg-meta .cfg-meta-label {
-  color: #555;
+  color: #666;
   margin-right: 4px;
 }
 .cfg-meta code {
@@ -94,7 +94,7 @@
 }
 .cfg-col-hd .cfg-version {
   font-size: 11px;
-  color: #666;
+  color: #777;
   font-weight: normal;
 }
 .cfg-col-hd .cfg-version.cfg-version-mismatch {
@@ -137,7 +137,7 @@
   top: 0;
   right: 4px;
   font-size: 10px;
-  color: #555;
+  color: #777;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   pointer-events: none;
   user-select: none;
@@ -157,7 +157,7 @@
   word-break: break-word;
 }
 .cfg-json.cfg-empty {
-  color: #555;
+  color: #777;
   font-style: italic;
 }
 .cfg-json .s {
@@ -196,7 +196,7 @@
 
 /* Dim any field equal to default — covers every field on the Default side too. */
 .cfg-field.cfg-equal-to-default .cfg-json {
-  opacity: 0.45;
+  opacity: 0.5;
 }
 
 /* "= default" tag is redundant on the Default column — hide it there. */
@@ -226,7 +226,7 @@
   color: #a89043;
 }
 .cfg-diff.cfg-equal {
-  color: #555;
+  color: #666;
 }
 
 /* On narrow viewports the grid drops to a single column stack; the diff
