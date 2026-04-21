@@ -355,7 +355,10 @@ static void printCors(WiFiClient& client, const String& origin) {
   if (origin.length() > 0 && getActiveConfig().allow_cors) {
     client.print("Access-Control-Allow-Origin: ");
     client.print(origin);
-    client.print("\r\nVary: Origin\r\n");
+    // Retry-After is not in the CORS response-header safelist, so JS can't
+    // read it on cross-origin responses unless we expose it explicitly. The
+    // hub uses it to honor the firmware's "retry after N seconds" hint on 503.
+    client.print("\r\nVary: Origin\r\nAccess-Control-Expose-Headers: Retry-After\r\n");
   }
 }
 
@@ -378,8 +381,14 @@ static void send405(WiFiClient& client, const String& origin) {
   Log.println("→ 405");
 }
 
-static void send503(WiFiClient& client, const char* msg, const String& origin) {
+// retryAfterSec > 0 emits a Retry-After header — tells the client that this
+// 503 is transient and a short retry is worthwhile (e.g. camera busy with
+// another capture). Omit for genuinely unavailable services.
+static void send503(WiFiClient& client, const char* msg, const String& origin, int retryAfterSec = 0) {
   client.print("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n");
+  if (retryAfterSec > 0) {
+    client.printf("Retry-After: %d\r\n", retryAfterSec);
+  }
   endHeaders(client, origin);
   client.print(msg);
   client.stop();
@@ -1669,8 +1678,13 @@ void loop() {
     } else if (path == "/api/streamfps") {
       handleStreamFps(client, originHeader);
     } else if (path == "/api/cam/stream.mjpeg") {
+      // Near-simultaneous requests to /api/cam/* race on g_captureActive — one
+      // wins, another could land while the task is still finishing. Rather
+      // than fail fast, wait briefly for the in-flight capture to complete.
+      for (int waited = 0; g_captureActive && waited < 2000; waited += 50)
+        vTaskDelay(pdMS_TO_TICKS(50));
       if (g_captureActive) {
-        send503(client, "Capture in progress.", originHeader);
+        send503(client, "Capture in progress.", originHeader, 1);
         return;
       }
       stopStream();
@@ -1687,8 +1701,10 @@ void loop() {
         send503(client, "Out of resources.", originHeader);
       }
     } else if (path == "/api/cam/capture.jpg") {
+      for (int waited = 0; g_captureActive && waited < 2000; waited += 50)
+        vTaskDelay(pdMS_TO_TICKS(50));
       if (g_captureActive) {
-        send503(client, "Capture in progress.", originHeader);
+        send503(client, "Capture in progress.", originHeader, 1);
         return;
       }
       bool wasStreaming = pauseStreamForCapture();

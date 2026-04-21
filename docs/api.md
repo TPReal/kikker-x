@@ -112,6 +112,9 @@ curl "http://kikker-x.local/api/cam/capture.jpg?res=UXGA&quality=4" --output pho
 Returns a single JPEG still. Defaults to UXGA and quality 4 (high). Accepts the same sensor parameters as the stream.
 Add `raw=1` to apply only the parameters explicitly present in the URL (useful for scripted capture).
 
+When the camera is already serving another capture, both endpoints respond `503 Service Unavailable` with
+`Retry-After: 1` — the client should wait the indicated number of seconds and retry.
+
 ```sh
 curl "http://kikker-x.local/api/streamfps"
 # → { "fps": 9.4, "active": true }

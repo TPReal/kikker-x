@@ -156,13 +156,48 @@ URL and type are skipped.
 Browsers block cross-origin `fetch()` requests unless the server sends `Access-Control-Allow-Origin` headers. KikkerX
 firmware sends these headers by default; many other cameras do not.
 
-For cameras without CORS headers, the hub automatically falls back to loading the thumbnail via an `<img>` element,
-which browsers allow for display-only use. The following hub features are unavailable for cameras without CORS:
+The hub uses `fetch()` for thumbnails and status — cameras that don't send CORS headers will show as unreachable in the
+hub. The camera's own page still works when opened directly via the card's "Open" link. Disabling CORS on a KikkerX
+camera (`"allow_cors": false` in the config) produces the same result: the card shows as unreachable in the hub.
 
-- **Auth headers** — `<img>` cannot carry an `Authorization` header, so camera auth does not work through the hub.
-- **Status info** — the battery/WiFi tooltip is fetched via `fetch()`; it will not appear for KikkerX cameras.
-- **Error details** — when a thumbnail request fails, the browser does not expose the response body across origins, so
-  only the HTTP status code is shown (e.g. `HTTP 503` without the message text).
+The reverse proxy (`--enable-proxy`, see below) sidesteps this: it re-hosts camera responses under the hub's origin with
+its own CORS headers, so cameras are reachable even without native CORS support.
 
-KikkerX CORS can be disabled in the config with `"allow_cors": false`. This may be desirable for stricter network
-environments, at the cost of the hub features listed above.
+---
+
+## Reverse proxy (`--enable-proxy`)
+
+When the hub is exposed through a single tunnel or VPN but the cameras aren't directly reachable by remote clients (the
+classic "I VPN'd to my home network but only the hub's port is forwarded" problem), the standalone hub can act as a
+reverse proxy for each camera.
+
+```sh
+python cameras_hub.py --store cameras.json --enable-proxy
+```
+
+With `--enable-proxy`:
+
+- One local listener is opened per distinct camera origin (OS-assigned port). The ports aren't stable across restarts.
+- When a camera is added or removed via `PUT /api/hub/store`, the listener set is reconciled.
+- The listeners forward every request verbatim — method, path, query, headers, body — to the upstream camera, and
+  stream responses back (MJPEG/multipart-safe; TCP_NODELAY on both legs). The client's `Authorization` header is passed
+  through unchanged.
+- **mDNS names (`*.local`) are resolved once at listener creation and the IP is cached**, avoiding a lookup on every
+  request. A connection failure triggers one automatic re-resolve + retry, so a DHCP renewal or brief camera outage
+  doesn't require restarting the hub.
+- `/api/hub/status` advertises the port map as `proxy: { ports: { "http://cam1": 54321, ... } }`.
+- The hub page shows a **Proxy through hub** checkbox in the `⋯` menu (only when the server offers it) and a small
+  "via proxy" badge in the header while it's active. The UI keeps displaying and editing original camera URLs; only
+  thumbnails, card links, and status requests target the proxy when the checkbox is on. Default on; remembered via
+  `pageOptions.hubProxy` in localStorage.
+
+Constraints:
+
+- **HTTP only.** The proxy listeners serve plain HTTP. If the hub's main page is served over HTTPS (e.g. a terminating
+  reverse proxy), the browser blocks mixed content; turn the proxy off or arrange matching HTTPS termination for the
+  random ports too.
+- **One port per origin.** All ports must be reachable by the client — this fits a VPN or LAN-wide tunnel, but not
+  a single-hostname tunnel (e.g. cloudflared).
+- **Auth pass-through.** The hub doesn't decrypt or manage camera credentials on the client's behalf. Whatever
+  `Authorization` the client sends to the proxy port is forwarded; no credentials are stored on the server beyond
+  whatever's in the store file.

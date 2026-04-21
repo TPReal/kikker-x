@@ -18,7 +18,15 @@ const STORE_VERSION = 1;
 const DEFAULT_INTERVAL = 0;
 
 // Hub status received from /api/hub/status, with defaults applied.
-let g_hubStatus = { isStandalone: true, version: null, store: { read: false, write: false } };
+// `proxy` is null when the server doesn't offer the per-camera reverse proxy;
+// when present it's { ports: {<camera origin>: <port>} }.
+let g_hubStatus = { isStandalone: true, version: null, proxy: null, store: { read: false, write: false } };
+
+// Whether the client should route camera requests through the hub's proxy
+// ports (when the hub offers them). Persisted via pageOptions; toggled from a
+// menu checkbox. Display/edit still uses cam.url; only fetches and links swap.
+// Default on when the key is unset.
+let g_useProxy = getPageOptions().hubProxy !== false;
 
 // Cached server credentials (read = GET /api/hub/store, write = PUT).
 // Write falls back to read if not separately prompted.
@@ -118,11 +126,55 @@ function parseStatus(raw) {
   return {
     isStandalone: raw?.isStandalone !== false,
     version: typeof raw?.version === "string" ? raw.version : null,
+    proxy: raw?.proxy?.ports && typeof raw.proxy.ports === "object" ? { ports: raw.proxy.ports } : null,
     store: {
       read: raw?.store?.read === true,
       write: raw?.store?.write === true,
     },
   };
+}
+
+// Returns the URL the client should actually use for a camera (thumb fetch,
+// links, /api/status). When the hub offers a proxy and the user hasn't opted
+// out, the camera origin is swapped to the hub host + proxied port; the path
+// and query are preserved so the proxy is transparent to the URL structure.
+// Use cam.url directly for identity, display, and edit flows.
+function effectiveUrl(cam) {
+  if (!g_useProxy || !g_hubStatus.proxy) {
+    return cam.url;
+  }
+  let u;
+  try {
+    u = new URL(cam.url);
+  } catch {
+    return cam.url;
+  }
+  const port = g_hubStatus.proxy.ports[u.origin];
+  if (!port) {
+    return cam.url;
+  }
+  // Strip trailing slashes so the result has the same shape as cam.url (no
+  // trailing slash — callers append paths like "/api/cam/capture.jpg").
+  // new URL("http://cam") yields pathname "/", which would produce "//api/..." if kept.
+  const path = u.pathname.replace(/\/+$/, "");
+  return `${window.location.protocol}//${window.location.hostname}:${port}${path}${u.search}${u.hash}`;
+}
+
+// True when proxying is enabled at the hub, the user has opted in, but this
+// camera's origin is NOT (yet) in the server's proxy ports map. Typically a
+// camera added locally that hasn't been saved to the server — the server
+// hasn't opened a proxy listener for it, so requests go direct.
+function isUnproxiedDespiteProxy(cam) {
+  if (!g_useProxy || !g_hubStatus.proxy) {
+    return false;
+  }
+  let u;
+  try {
+    u = new URL(cam.url);
+  } catch {
+    return false;
+  }
+  return !g_hubStatus.proxy.ports[u.origin];
 }
 
 // Shows the credentials dialog, retrying the given URL+opts on submit until it succeeds (non-401).
@@ -304,11 +356,12 @@ function appendParam(url, param) {
 // ---- Thumbnail URL ----------------------------------------------------------
 
 function thumbUrl(cam) {
+  const base = effectiveUrl(cam);
   if (cam.type === "kikker-x") {
     const params = cam.captureParams ? `${cam.captureParams}&res=VGA` : "res=VGA";
-    return `${cam.url}/api/cam/capture.jpg?${params}&_t=${Date.now()}`;
+    return `${base}/api/cam/capture.jpg?${params}&_t=${Date.now()}`;
   }
-  return appendParam(cam.url, `_t=${Date.now()}`);
+  return appendParam(base, `_t=${Date.now()}`);
 }
 
 // ---- Thumbnail fetch --------------------------------------------------------
@@ -356,11 +409,6 @@ async function extractFirstJpegFrame(resp) {
   }
 }
 
-// Camera URLs known to block fetch due to missing CORS headers.
-// Skips the fetch attempt on subsequent refreshes for these cameras.
-// Maps camera base URL → "img" (image displayable via <img>) or "noimg" (auth required, not displayable).
-const corsCameras = new Map();
-
 // KikkerX firmware versions as reported by each camera's /api/status.
 // Populated by loadStatus(); cleared in renderGrid() so stale entries from
 // removed cameras can't keep flagging others as outdated.
@@ -404,27 +452,45 @@ function updateOutdatedIndicators() {
 
 // Returns one of:
 //   {status: "ok", blobUrl}      — success
-//   {status: "cors", imgUrl}     — no CORS headers; image displayable via <img>
 //   {status: "auth"}             — 401/403
 //   {status: "not-found"}        — 404
 //   {status: "timeout"}          — request aborted after 15 s
 //   {status: "http-error", httpStatus: N} — other non-ok HTTP response
-//   {status: "error"}            — network error
+//   {status: "error"}            — network error (incl. CORS-blocked responses; indistinguishable in the browser)
 async function fetchThumb(cam) {
   const url = thumbUrl(cam);
-  if (corsCameras.has(cam.url)) {
-    return { status: "cors", imgUrl: corsCameras.get(cam.url) === "img" ? url : null };
-  }
   const authVal = isSameOrigin(cam) ? null : basicAuthHeader(getCredentials(cam));
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+  // Retry transient 503s (camera busy with another capture). The firmware sets
+  // Retry-After on those; we honor it up to a small bound.
+  const MAX_RETRIES = 2;
+  let attempt = 0;
   try {
     const fetchOpts = { signal: controller.signal };
     if (authVal) {
       fetchOpts.headers = { Authorization: authVal };
     }
-    const resp = await fetch(url, fetchOpts);
+    let resp;
+    while (true) {
+      resp = await fetch(url, fetchOpts);
+      if (resp.status !== 503 || attempt >= MAX_RETRIES) {
+        break;
+      }
+      const retryAfter = parseFloat(resp.headers.get("Retry-After") ?? "");
+      if (!(retryAfter > 0)) {
+        break;
+      }
+      // Drain the body so the connection can be reused.
+      try {
+        await resp.body?.cancel();
+      } catch {
+        // ignore
+      }
+      attempt += 1;
+      await new Promise(r => setTimeout(r, Math.min(retryAfter, 3) * 1000));
+    }
     if (resp.status === 401 || resp.status === 403) {
       clearTimeout(timeoutId);
       return { status: "auth", detail: `HTTP ${resp.status} ${resp.statusText}` };
@@ -468,35 +534,10 @@ async function fetchThumb(cam) {
     if (e.name === "AbortError") {
       return { status: "timeout", detail: "Request timed out after 15 s" };
     }
-    // TypeError means CORS block or network failure. Probe with <img> to distinguish:
-    // <img> ignores CORS headers so it loads if the server is reachable, fails if it's down.
-    // Cache-bust so a cached image from a prior successful load doesn't give a false positive.
-    // Short timeout: a real CORS-blocked server responds to <img> quickly; a slow or flaky
-    // server that happens to respond just before TCP timeout would be a false CORS positive.
-    const probeUrl = appendParam(url, `_probe=${Date.now()}`);
-    const canDisplay = await new Promise(resolve => {
-      const testImg = new Image();
-      const timer = setTimeout(() => {
-        testImg.onload = testImg.onerror = null;
-        testImg.src = "";
-        resolve(false);
-      }, 5000);
-      testImg.onload = () => {
-        clearTimeout(timer);
-        resolve(true);
-      };
-      testImg.onerror = () => {
-        clearTimeout(timer);
-        resolve(false);
-      };
-      testImg.src = probeUrl;
-    });
-    if (canDisplay) {
-      // Server is up — CORS is blocking the fetch. If credentials were sent, auth headers
-      // can't be carried via <img> either, so the thumbnail won't be displayable.
-      corsCameras.set(cam.url, authVal ? "noimg" : "img");
-      return { status: "cors", imgUrl: authVal ? null : url };
-    }
+    // TypeError here could be either a network failure or a CORS block — the browser doesn't
+    // distinguish. We used to probe with <img> to tell them apart, but that produced false
+    // "CORS" verdicts for slow or flaky servers that happened to respond just before the probe
+    // timeout. Treat both as plain unreachable.
     return { status: "error", detail: e.message || "Network error" };
   }
 }
@@ -677,9 +718,18 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
   perCamRefreshBtn.textContent = "↻";
   perCamRefreshBtn.style.flexShrink = "0";
   perCamRefreshBtn.addEventListener("click", () => {
-    corsCameras.delete(cam.url);
     loadThumb(true);
   });
+
+  let directMarker = null;
+  if (isUnproxiedDespiteProxy(cam)) {
+    directMarker = document.createElement("span");
+    directMarker.className = "cam-direct-marker";
+    directMarker.textContent = "direct";
+    directMarker.title =
+      "This camera is accessed directly, not through the hub's proxy. " +
+      "Locally added cameras go through the proxy only after the store is saved to the server.";
+  }
 
   if (g_allowChanging) {
     const handle = document.createElement("span");
@@ -690,6 +740,9 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
   }
   nameRow.appendChild(nameEl);
   nameRow.appendChild(perCamRefreshBtn);
+  if (directMarker) {
+    nameRow.appendChild(directMarker);
+  }
   info.appendChild(nameRow);
 
   if (isDuplicate) {
@@ -734,6 +787,7 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
   const links = document.createElement("div");
   links.className = "cam-links";
 
+  const linkBase = effectiveUrl(cam);
   if (cam.type === "kikker-x") {
     for (const [label, path] of [
       ["Home", "/"],
@@ -741,7 +795,7 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
       ["Video", "/video"],
     ]) {
       const a = document.createElement("a");
-      a.href = cam.url + path;
+      a.href = linkBase + path;
       a.textContent = label;
       a.target = "_blank";
       a.draggable = false;
@@ -749,7 +803,7 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
     }
   } else {
     const a = document.createElement("a");
-    a.href = cam.url;
+    a.href = linkBase;
     a.textContent = "Open";
     a.target = "_blank";
     a.draggable = false;
@@ -769,17 +823,10 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
     outdatedBtn.textContent = "!";
     outdatedBtn.hidden = true;
     outdatedBtn.addEventListener("click", () => {
-      window.open(`${cam.url}/ota`, "_blank");
+      window.open(`${effectiveUrl(cam)}/ota`, "_blank");
     });
     links.appendChild(outdatedBtn);
   }
-
-  const corsBtn = document.createElement("span");
-  corsBtn.className = "cam-status-btn cam-cors-btn";
-  corsBtn.hidden = true;
-  corsBtn.title =
-    "CORS is disabled on this camera — auth headers and status info unavailable.\nIf auth is required on this camera, thumbnails cannot be fetched.";
-  links.appendChild(corsBtn);
 
   links.appendChild(btnRow);
   info.appendChild(links);
@@ -933,21 +980,6 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
         authSection.hidden = true;
       }
       loadStatus(forceStatus);
-    } else if (result.status === "cors") {
-      if (result.imgUrl !== null) {
-        img.src = result.imgUrl;
-        img.hidden = false;
-        errDiv.hidden = true;
-      } else {
-        img.hidden = true;
-        errDiv.textContent = "⚠ Auth required";
-        errDiv.hidden = false;
-      }
-      corsBtn.hidden = false;
-      if (authSection) {
-        authSection.hidden = true;
-      }
-      loadStatus(forceStatus);
     } else {
       img.hidden = true;
       if (result.status === "auth") {
@@ -969,29 +1001,6 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
       if (statusBtn && !statusBtn.hidden) {
         statusBtn.classList.add("stale");
       }
-      // kikker-x's authDeny adds CORS headers to 401 unconditionally, so a readable
-      // 401 doesn't confirm CORS is enabled. Probe with a credentialed request on an
-      // auth-exempt path: if the preflight fails, CORS is disabled.
-      if (result.status === "auth" && cam.type === "kikker-x") {
-        (async () => {
-          try {
-            await fetch(`${cam.url}/manifest.json`, {
-              headers: { Authorization: "Basic Zg==" },
-              signal: AbortSignal.timeout(5000),
-            });
-            // Preflight passed → CORS enabled; auth prompt stays.
-          } catch (e) {
-            if (e.name !== "AbortError") {
-              // Preflight failed → CORS disabled.
-              corsCameras.set(cam.url, "noimg");
-              corsBtn.hidden = false;
-              if (authSection) {
-                authSection.hidden = true;
-              }
-            }
-          }
-        })();
-      }
     }
   }
 
@@ -1008,7 +1017,7 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
       if (authVal) {
         fetchOpts.headers = { Authorization: authVal };
       }
-      const resp = await fetch(`${cam.url}/api/status`, fetchOpts);
+      const resp = await fetch(`${effectiveUrl(cam)}/api/status`, fetchOpts);
       if (!resp.ok) {
         return;
       }
@@ -1050,7 +1059,6 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
 function renderGrid() {
   const cameras = loadStore().cameras;
   cameraVersions.clear();
-  corsCameras.clear();
 
   const urlCount = new Map();
   for (const cam of cameras) {
@@ -1154,7 +1162,9 @@ function parseImportData(text) {
 docElem.intervalSel.value = String(loadInterval());
 applyInterval(loadInterval());
 
-{
+// Fetches /api/hub/status and updates g_hubStatus. Returns the raw status
+// payload (or null on failure) for callers that need to branch on reachability.
+async function fetchHubStatus() {
   let statusData = null;
   try {
     const statusResp = await fetch("/api/hub/status");
@@ -1165,10 +1175,16 @@ applyInterval(loadInterval());
     }
   } catch (e) {
     console.warn("[hub] /api/hub/status fetch failed:", e.message);
+  }
+  g_hubStatus = parseStatus(statusData);
+  return statusData;
+}
+
+{
+  const statusData = await fetchHubStatus();
+  if (statusData === null) {
     showToast("Hub server not reachable");
   }
-
-  g_hubStatus = parseStatus(statusData);
 
   if (g_hubStatus.store.read) {
     const hubStore = await fetchServerStore();
@@ -1192,6 +1208,12 @@ if (g_hubStatus.version) {
   docElem.hubVersion.textContent = `v${g_hubStatus.version}`;
   docElem.hubVersion.hidden = false;
 }
+if (g_hubStatus.proxy) {
+  docElem.proxyToggleLabel.hidden = false;
+  docElem.proxyToggleSep.hidden = false;
+  docElem.proxyToggleChk.checked = g_useProxy;
+}
+updateProxyBadge();
 
 function applyRoleToUI() {
   docElem.addBtn.hidden = !g_allowChanging;
@@ -1199,6 +1221,10 @@ function applyRoleToUI() {
   docElem.saveBtn.hidden = !g_hubStatus.store.write;
   docElem.resetDefaultsBtn.hidden = !g_hubStatus.store.read;
   docElem.allowChangingChk.checked = g_allowChanging;
+}
+
+function updateProxyBadge() {
+  docElem.proxyBadge.hidden = !(g_hubStatus.proxy && g_useProxy);
 }
 
 applyRoleToUI();
@@ -1272,6 +1298,13 @@ docElem.saveBtn.addEventListener("click", async () => {
   }
   if (resp.ok) {
     showToast("Saved to server");
+    // The server opens/closes proxy listeners based on the saved store, so
+    // the ports map in /api/hub/status has just changed. Re-fetch it and
+    // re-render so cards pick up the new proxy URLs and drop any "direct"
+    // markers that no longer apply.
+    await fetchHubStatus();
+    updateProxyBadge();
+    renderGrid();
   } else {
     const err = await resp.json().catch(() => null);
     showToast(`Save failed: ${err?.error ?? resp.status}`);
@@ -1309,6 +1342,18 @@ docElem.allowChangingChk.addEventListener("change", e => {
   g_allowChanging = e.target.checked;
   docElem.manageMenu.hidden = true;
   applyRoleToUI();
+  renderGrid();
+});
+
+// ---- Proxy-through-hub toggle ----
+
+docElem.proxyToggleChk.addEventListener("change", e => {
+  g_useProxy = e.target.checked;
+  patchPageOptions({ hubProxy: g_useProxy });
+  docElem.manageMenu.hidden = true;
+  updateProxyBadge();
+  // Re-render so card <a href>s rebuild with the new URLs. Thumbs and status
+  // re-fetch automatically as part of the grid rebuild.
   renderGrid();
 });
 

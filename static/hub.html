@@ -22,9 +22,8 @@
     </svg>
 
     <div class="bar">
-      <span class="nav-title"
-        ><a href="/" id="homeLink" hidden>⇦</a> Cameras Hub <span class="nav-version" id="hubVersion" hidden></span
-      ></span>
+      <span class="nav-title"><a href="/" id="homeLink" hidden>⇦</a> Cameras Hub <span class="nav-version"
+          id="hubVersion" hidden></span></span>
       <div class="bar-center">
         <label for="intervalSel" style="font-size: 13px; color: #aaa">Refresh:</label>
         <select id="intervalSel" style="font-size: 13px; padding: 3px 6px">
@@ -40,6 +39,10 @@
         <button type="button" id="refreshNowBtn" title="Refresh all">↻</button>
       </div>
       <div class="bar-center">
+        <span id="proxyBadge" class="proxy-badge" hidden
+          title="All camera traffic is routed through the hub's per-camera proxy ports. Toggle in the ⋯ menu.">
+          via proxy
+        </span>
         <div class="manage-wrap">
           <button type="button" id="manageBtn" title="Menu">⋯</button>
           <div id="manageMenu" hidden>
@@ -51,7 +54,13 @@
             <button type="button" id="importBtn">Import</button>
             <button type="button" id="exportBtn">Export</button>
             <hr class="menu-sep" />
-            <label class="menu-chk-label"><input type="checkbox" id="allowChangingChk" /> Allow changes</label>
+            <label class="menu-chk-label">
+              <input type="checkbox" id="allowChangingChk" /> Allow changes
+            </label>
+            <hr class="menu-sep" id="proxyToggleSep" hidden />
+            <label class="menu-chk-label" id="proxyToggleLabel" hidden>
+              <input type="checkbox" id="proxyToggleChk" /> Proxy through Hub
+            </label>
           </div>
         </div>
         <input type="file" id="fileInput" accept=".json" hidden />

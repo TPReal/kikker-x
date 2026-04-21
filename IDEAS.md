@@ -129,39 +129,31 @@ complexity. A hub-side push only pays off when there are many cameras to update,
 
 ---
 
-## Standalone hub as a reverse proxy to LAN cameras
+## Hub proxy: authorise on behalf of the client
 
-When the cameras and a standalone hub are all on a home LAN and the user wants access from outside, tunnelling or VPN
-to the hub alone isn't enough — the hub page loads, but every camera card tries to hit the camera's LAN URL directly
-and fails. Today the workaround is to tunnel each camera separately, which scales badly.
+`--enable-proxy` (standalone hub) currently passes the client's `Authorization` header through to the upstream
+camera unchanged. The store already carries the camera auths (username + password in `auths[]`), so the hub *could*
+inject the matching credentials itself and spare the client from sending them.
 
-Proposed opt-in mode on `cameras_hub.py` (e.g. `--proxy-cameras`): for each camera in the store, bind a random local
-port on the hub and forward all traffic on that port to the camera's base URL. When the hub delivers the cameras list
-to the client (`/api/hub/store`), rewrite each camera's `url` to `{hub-origin}:{forwarded-port}`. The client then hits
-the hub on that port, the hub relays to the camera, and everything — pages, MJPEG streams, JPEG captures, API calls —
-flows through the one tunnelled hub endpoint.
+Benefits:
 
-Doable, but with considerations:
+- One login flow for the whole UI — authenticate to the hub once; the proxy resolves per-camera auth server-side. Good
+  for mobile UX: no per-camera password dialogs after the first unlock.
+- Works with cameras that are fussy about CORS on 401 (the browser never sees a 401 because auth is injected before
+  the request leaves the hub).
+- Client no longer needs to keep the camera's cleartext password in memory / localStorage if it can reach the hub.
 
-- **Many ports to expose.** Tunnels like cloudflared prefer a single hostname/port. Exposing N+1 ports through the
-  tunnel isn't always easy. A single-port alternative: path-based routing (e.g. `/proxy/<camera-id>/…`) — the hub
-  rewrites camera URLs to `{hub-origin}/proxy/<id>/`, and every inbound request under `/proxy/<id>/` is stripped of the
-  prefix and forwarded. One port to tunnel, but the URL rewriting has to be path-aware and some cameras may emit
-  absolute paths that need fixing.
-- **Auth layering.** The hub already caches per-camera credentials for `/api/hub/store`; the proxy can inject
-  `Authorization: Basic …` on outbound requests so the client no longer sees 401s per camera. Inbound access still
-  needs the hub's own read auth. This is arguably an _improvement_ over today — one login instead of one-per-camera.
-- **MJPEG streams.** Long-lived `multipart/x-mixed-replace` responses need the proxy to stream bytes without buffering.
-  `ThreadingHTTPServer` already gives us per-connection threads; the forwarder just copies the upstream body to the
-  client until either side disconnects.
-- **Host header / redirects.** The hub must rewrite the `Host` header on outbound requests (to the camera's actual
-  host), and rewrite any `Location:` headers on inbound responses so absolute redirects land back on the proxy.
-- **HTTPS mixed-content.** If the tunnel terminates TLS at the hub, the hub talks plain HTTP to the cameras internally
-  — fine, no mixed content.
-- **Persistence.** The port-per-camera binding should be stable across hub restarts (so client bookmarks don't break).
-  Stash the mapping in the store file, or derive a deterministic port from a hash of the camera URL within a declared
-  range.
-- **Self-camera edge case.** Cameras with `url: "SELF"` are already same-origin to the hub; they don't need proxying.
+Open questions:
 
-Worth shipping as a CLI flag (`--proxy-cameras` / `--proxy-mode ports|paths`) so the default standalone hub stays
-simple and the tunnel use case picks it up explicitly.
+- Who is allowed to invoke which camera? With the current pass-through model, the store file holds credentials and
+  anyone with read access to the store can extract them. With hub-injected auth, the client can use a camera via the
+  proxy without ever seeing the credentials. That might be desirable (pass them to the hub admin once, share the hub
+  URL with others) — or it might not (per-user access control).
+- Per-client credential override. The user might want to temporarily try different creds on a camera without editing
+  the store. Need a way for the client to say "use this Authorization instead of the stored one" — e.g. a session
+  override header recognised by the proxy.
+- Lookup: the proxy listener only knows its upstream origin; it doesn't know which stored auth applies. Need a map
+  `origin → authId → credentials` built during reconciliation, or resolve on each request.
+
+A reasonable middle ground: ship injection as an opt-in flag (`--inject-auth` or per-camera flag in the store),
+keeping the pass-through default.

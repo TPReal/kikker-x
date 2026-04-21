@@ -102,7 +102,10 @@ def get_active_config() -> dict[str, Any]:
     built_config = os.path.join(SCRIPT_DIR, "src", "_config.json")
     try:
         with open(built_config, "r", encoding="utf-8") as f:
-            embedded = json.load(f)
+            text = f.read().strip()
+        # prepare_config.py writes an empty file for NO_CONFIG_POLICIES
+        # (LOAD_OR_USE_DEFAULT, LOAD_OR_FAIL) — treat same as missing.
+        embedded = json.loads(text) if text else {}
     except FileNotFoundError:
         embedded = {}
     return {**_DEFAULT_CONFIG, **embedded}
