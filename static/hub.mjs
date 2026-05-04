@@ -7,7 +7,7 @@
 // Cross-origin thumbnails are fetched via fetch() with an explicit Authorization header.
 
 import { getPageOptions, patchPageOptions } from "/page_options.mjs";
-import { compareVersion, docElem } from "/util.mjs";
+import { compareVersion, docElem, openMenu, showToast } from "/util.mjs";
 
 function randomId() {
   return Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
@@ -985,7 +985,7 @@ function makeCard(cam, index, selfCam, isDuplicate = false) {
       if (result.status === "auth") {
         errDiv.textContent = "⚠ Auth required";
       } else if (result.status === "timeout") {
-        errDiv.textContent = "⚠ Timeout";
+        errDiv.textContent = "⚠ Offline";
       } else if (result.status === "not-found") {
         errDiv.textContent = "⚠ Not found";
       } else if (result.status === "http-error") {
@@ -1108,25 +1108,6 @@ function refreshThumbs() {
   });
 }
 
-// ---- Toast ------------------------------------------------------------------
-
-let toastTimer = null;
-
-function showToast(message) {
-  docElem.toast.textContent = message;
-  docElem.toast.classList.remove("fade");
-  if (!docElem.toast.matches(":popover-open")) {
-    docElem.toast.showPopover();
-  }
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    docElem.toast.classList.add("fade");
-    toastTimer = setTimeout(() => {
-      docElem.toast.hidePopover();
-    }, 400);
-  }, 4000);
-}
-
 // ---- Export / Import --------------------------------------------------------
 
 function buildExportJson(cameras, auths) {
@@ -1183,7 +1164,7 @@ async function fetchHubStatus() {
 {
   const statusData = await fetchHubStatus();
   if (statusData === null) {
-    showToast("Hub server not reachable");
+    showToast(docElem.toast, "Hub server not reachable");
   }
 
   if (g_hubStatus.store.read) {
@@ -1233,7 +1214,11 @@ applyRoleToUI();
 
 docElem.manageBtn.addEventListener("click", e => {
   e.stopPropagation();
-  docElem.manageMenu.hidden = !docElem.manageMenu.hidden;
+  if (docElem.manageMenu.hidden) {
+    openMenu(docElem.manageMenu);
+  } else {
+    docElem.manageMenu.hidden = true;
+  }
 });
 
 document.addEventListener("click", () => {
@@ -1255,7 +1240,7 @@ docElem.loadBtn.addEventListener("click", async () => {
   }
   applyHubImport(serverStore, false);
   renderGrid();
-  showToast("Loaded from server");
+  showToast(docElem.toast, "Loaded from server");
 });
 
 docElem.saveBtn.addEventListener("click", async () => {
@@ -1286,7 +1271,7 @@ docElem.saveBtn.addEventListener("click", async () => {
   try {
     resp = await fetch("/api/hub/store", { ...putOpts, headers: firstHeaders });
   } catch {
-    showToast("Save failed: network error");
+    showToast(docElem.toast, "Save failed: network error");
     return;
   }
   if (resp.status === 401) {
@@ -1297,7 +1282,7 @@ docElem.saveBtn.addEventListener("click", async () => {
     }
   }
   if (resp.ok) {
-    showToast("Saved to server");
+    showToast(docElem.toast, "Saved to server");
     // The server opens/closes proxy listeners based on the saved store, so
     // the ports map in /api/hub/status has just changed. Re-fetch it and
     // re-render so cards pick up the new proxy URLs and drop any "direct"
@@ -1307,7 +1292,7 @@ docElem.saveBtn.addEventListener("click", async () => {
     renderGrid();
   } else {
     const err = await resp.json().catch(() => null);
-    showToast(`Save failed: ${err?.error ?? resp.status}`);
+    showToast(docElem.toast, `Save failed: ${err?.error ?? resp.status}`);
   }
 });
 
@@ -1529,7 +1514,7 @@ docElem.dupBtn.addEventListener("click", () => {
   });
   docElem.addUrl.disabled = false;
   docElem.authSelfNote.hidden = true;
-  showToast("Pre-filled — save to add as new");
+  showToast(docElem.toast, "Pre-filled — save to add as new");
   docElem.dupBtn.hidden = true;
   docElem.copyBtn.hidden = true;
 });
@@ -1540,7 +1525,9 @@ docElem.copyBtn.addEventListener("click", () => {
   }
   const st = loadStore();
   const camAuths = editCam.authId ? st.auths.filter(a => a.id === editCam.authId) : [];
-  navigator.clipboard.writeText(buildExportJson([editCam], camAuths)).then(() => showToast("Copied to clipboard"));
+  navigator.clipboard
+    .writeText(buildExportJson([editCam], camAuths))
+    .then(() => showToast(docElem.toast, "Copied to clipboard"));
 });
 
 docElem.addForm.addEventListener("submit", e => {
@@ -1794,7 +1781,7 @@ docElem.exportSaveBtn.addEventListener("click", () => {
 });
 
 docElem.exportCopyBtn.addEventListener("click", () => {
-  navigator.clipboard.writeText(docElem.exportText.value).then(() => showToast("Copied to clipboard"));
+  navigator.clipboard.writeText(docElem.exportText.value).then(() => showToast(docElem.toast, "Copied to clipboard"));
 });
 
 docElem.exportCloseBtn.addEventListener("click", () => docElem.exportDialog.close());

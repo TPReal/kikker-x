@@ -17,19 +17,19 @@
       <p class="ota-current-line">Board: <span id="otaBoard">…</span></p>
       <p class="ota-current-line">Current firmware: <span id="otaCurrentVersion">…</span>
         <a id="otaDownload" href="/api/firmware" download="firmware.bin" class="ota-download-link" hidden>download firmware</a></p>
-      <p id="otaDisabled" class="ota-disabled" hidden>OTA updates are disabled in this device's configuration.</p>
+      <p id="otaDisabled" class="error-banner" style="margin: 12px 0" hidden>OTA updates are disabled in this device's configuration.</p>
       <div id="otaModeRow" class="ota-mode-row">
         <label class="ota-mode-opt">
-          <input type="radio" name="otaMode" value="file" checked />
+          <input type="radio" name="otaMode" value="file" class="visually-hidden" checked />
           Upload file
         </label>
         <label class="ota-mode-opt">
-          <input type="radio" name="otaMode" value="url" />
+          <input type="radio" name="otaMode" value="url" class="visually-hidden" />
           Fetch from URL
         </label>
       </div>
       <div id="otaFileSection">
-        <p class="ota-hint">
+        <p class="hint">
           Select a firmware file (<code>.bin</code>) produced by the build and upload it to the device.
         </p>
         <div id="otaFileRow" class="btn-row">
@@ -39,7 +39,7 @@
         <div id="otaFileVersion" class="ota-file-version" hidden></div>
       </div>
       <div id="otaUrlSection" style="display:none">
-        <p class="ota-hint">
+        <p class="hint">
           Enter a direct URL to a firmware <code>.bin</code> file. It will be fetched by the browser and uploaded to the
           device.
         </p>
@@ -48,9 +48,10 @@
           <button type="button" id="otaFetchBtn" class="restart-btn ota-btn" disabled>Fetch & Flash</button>
         </div>
       </div>
-      <div id="otaStatus"></div>
+      <div id="otaStatus" class="status-line"></div>
       <div id="otaPath" hidden></div>
     </div>
+    <div id="toast" class="toast" popover="manual"></div>
     <script type="module" src="/ota.mjs"></script>
   </body>
 </html>

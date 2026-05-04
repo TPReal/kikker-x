@@ -409,7 +409,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
 
         conn_cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
 
-        def try_connect(host: str):
+        def try_connect(host: str) -> tuple[http.client.HTTPConnection, http.client.HTTPResponse]:
             # 30s timeout guards the connect + request + response-headers phase. After
             # we have the response we drop the socket timeout so long-running MJPEG
             # streams (which may have long gaps between frames on low-fps cameras) don't
@@ -430,7 +430,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
 
         try:
             conn, resp = try_connect(server.connect_host)
-        except (OSError, http.client.HTTPException) as first_err:
+        except (OSError, http.client.HTTPException):
             # For .local names: cached IP may be stale (DHCP renewed). Try a
             # fresh resolution once and retry. For non-.local, refresh_resolution
             # is a no-op.
@@ -713,7 +713,8 @@ def main() -> None:
         proxy_manager = ProxyManager()
         if store_path is not None and store_path.exists():
             initial = load_store(store_path)
-            cameras = initial.get("cameras", []) if isinstance(initial, dict) else []
+            raw_cameras = initial.get("cameras") if isinstance(initial, dict) else None
+            cameras = raw_cameras if isinstance(raw_cameras, list) else []
             proxy_manager.reconcile([c.get("url", "") for c in cameras if isinstance(c, dict)])
 
     server = ThreadedHTTPServer(

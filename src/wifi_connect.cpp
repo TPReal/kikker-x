@@ -1,9 +1,14 @@
 #include "wifi_connect.h"
 
 #include <WiFi.h>
+#include <esp_random.h>
+
+#include <string>
 
 #include "config.h"
 #include "log.h"
+
+using std::string;
 
 static const int CONNECT_TIMEOUT_S = 20;
 static const int RETRY_DELAY_S = 10;
@@ -42,7 +47,8 @@ static bool connectTo(const WifiEntry* e, int scanRssi) {
   WiFi.disconnect();
   delay(100);
   applyIpConfig(e);
-  WiFi.begin(e->ssid.c_str(), e->password.c_str());
+  // Empty password = open network — pass nullptr so WiFi.begin doesn't try WPA with a blank key.
+  WiFi.begin(e->ssid.c_str(), e->password.empty() ? nullptr : e->password.c_str());
   WiFi.setSleep(false);
   for (int t = 0; t < CONNECT_TIMEOUT_S * 2; t++) {
     if (WiFi.status() == WL_CONNECTED) {
@@ -81,9 +87,31 @@ static const WifiEntry* scanPick(int* rssi) {
   return chosen;
 }
 
+// Resolves AP_FALLBACK_RANDOM_TOKEN to an actual random passphrase. Generated + logged
+// on first call (wifiConnect calls this eagerly at boot when AP fallback is configured)
+// and cached for the rest of the boot, so any later AP restarts keep the same password.
+static const char* resolveApPassword(const ApFallback& ap) {
+  if (ap.password != AP_FALLBACK_RANDOM_TOKEN) {
+    return ap.password.empty() ? nullptr : ap.password.c_str();
+  }
+  static string generated;
+  if (generated.empty()) {
+    static const char kChars[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    char buf[13];
+    for (int i = 0; i < 12; i++) {
+      buf[i] = kChars[esp_random() % (sizeof(kChars) - 1)];
+    }
+    buf[12] = '\0';
+    generated = buf;
+    Log.printf("AP password (auto-generated): %s\n", generated.c_str());
+  }
+  return generated.c_str();
+}
+
 static void startAP(const ApFallback& ap) {
   WiFi.mode(WIFI_AP);
-  bool ok = ap.password.empty() ? WiFi.softAP(ap.ssid.c_str()) : WiFi.softAP(ap.ssid.c_str(), ap.password.c_str());
+  const char* pass = resolveApPassword(ap);
+  bool ok = pass ? WiFi.softAP(ap.ssid.c_str(), pass) : WiFi.softAP(ap.ssid.c_str());
   if (ok) {
     g_apMode = true;
     g_current = nullptr;
@@ -100,6 +128,12 @@ void wifiConnect() {
 
   const Config& cfg = getActiveConfig();
   bool hasAP = !cfg.ap_fallback.ssid.empty();
+  // Generate + log the AP password up front (when AP fallback is configured), so the user
+  // sees it on the serial console at startup even if a known network connects and AP
+  // never actually comes up. Cached for any later startAP calls within this boot.
+  if (hasAP) {
+    resolveApPassword(cfg.ap_fallback);
+  }
   if (cfg.wifi_entries.empty()) {
     if (hasAP) {
       Log.println("No WiFi networks configured — starting AP");

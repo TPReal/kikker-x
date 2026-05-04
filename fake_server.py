@@ -62,9 +62,9 @@ _DEVICE_ID = "c0ffeefacade"
 # Must match CONFIG_SCHEMA_VERSION in src/config.h.
 _CONFIG_SCHEMA_VERSION = 2
 
-# Simulated policy — always USE_EMBEDDED in this fake server, so the active
-# config is always whatever's in src/_config.json (merged over defaults).
-_CONFIG_POLICY = "USE_EMBEDDED"
+# Simulated policy — LOAD_OR_USE_EMBEDDED so the stored entry is treated as the
+# live read source and the stored-config edit endpoints are enabled (can_edit_stored).
+_CONFIG_POLICY = "LOAD_OR_USE_EMBEDDED"
 
 # Firmware defaults — mirror what Config("{}") would produce on the device.
 _DEFAULT_CONFIG: dict[str, Any] = {
@@ -79,7 +79,9 @@ _DEFAULT_CONFIG: dict[str, Any] = {
 # Fake "stored" config (already defaults-merged) — pretends a previous install
 # put this in NVS. Shown on /api/config for realistic stored-vs-embedded diffs,
 # but not used by any other endpoint.
-_STORED_CONFIG: dict[str, Any] = {
+#
+# `None` emulates an empty / absent NVS entry (e.g. after DELETE /api/config/stored).
+_stored_config: dict[str, Any] | None = {
     **_DEFAULT_CONFIG,
     "mdns": "camera-kitchen",
     "known_networks": [
@@ -111,13 +113,26 @@ def get_active_config() -> dict[str, Any]:
     return {**_DEFAULT_CONFIG, **embedded}
 
 
+# Snapshot of the active config taken at boot — emulates the device's in-RAM
+# "active" config that keeps running even after NVS is mutated. Mirrors
+# LOAD_OR_USE_EMBEDDED: stored wins when present, else embedded.
+_ACTIVE_CONFIG: dict[str, Any] = dict(_stored_config) if _stored_config else get_active_config()
+
+# Flipped true after a successful PUT/DELETE on /api/config/stored — signals that
+# NVS no longer matches what's running. Resets only on process restart.
+_stored_is_modified = False
+
+
 def _config_to_json(cfg: dict[str, Any]) -> dict[str, Any]:
-    """Build a redacted copy of the config: all keys starting with 'password'
-    are replaced with '***'."""
+    """Build a redacted copy of the config: keys starting with 'password' that
+    hold a non-empty string are replaced with '***'. Null / empty values are
+    kept verbatim (open networks have no password to hide)."""
 
     def redact(obj: Any) -> Any:
         if isinstance(obj, dict):
-            return {k: "***" if k.startswith("password") else redact(v) for k, v in obj.items()}
+            return {
+                k: "***" if k.startswith("password") and isinstance(v, str) and v else redact(v) for k, v in obj.items()
+            }
         if isinstance(obj, list):
             return [redact(v) for v in obj]
         return obj
@@ -959,7 +974,7 @@ class KikkerXHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin", "")
         if origin and get_active_config().get("allow_cors", True):
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Headers", "Authorization")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
             self.send_header("Vary", "Origin")
         super().end_headers()
 
@@ -972,7 +987,7 @@ class KikkerXHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         if get_active_config().get("allow_cors", True):
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE")
             self.send_header("Access-Control-Max-Age", "86400")
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -1056,30 +1071,45 @@ class KikkerXHandler(BaseHTTPRequestHandler):
                 self._send_json(data)
 
         elif path == "/api/config":
-            # Policy is hardcoded USE_EMBEDDED: embedded is read, NVS is untouched.
-            # Only embedded is active; stored is present for visual comparison only.
-            self._send_json(
-                {
-                    "policy": _CONFIG_POLICY,
-                    "active_source": "embedded",
+            # Policy is LOAD_OR_USE_EMBEDDED: stored is the primary read source
+            # when present, else embedded. After a PUT/DELETE the stored entry
+            # is marked is_modified and loses its is_active flag.
+            stored_present = _stored_config is not None
+            stored_is_active = stored_present and not _stored_is_modified
+            active_source = "stored" if stored_is_active else "embedded"
+            resp: dict[str, Any] = {
+                "policy": _CONFIG_POLICY,
+                "active_source": active_source,
+                "schema_version": _CONFIG_SCHEMA_VERSION,
+                "can_edit_stored": True,
+                "active": {
+                    "is_active": True,
                     "schema_version": _CONFIG_SCHEMA_VERSION,
-                    "stored": {
-                        "is_active": False,
-                        "schema_version": _CONFIG_SCHEMA_VERSION,
-                        "config": _config_to_json(_STORED_CONFIG),
-                    },
-                    "embedded": {
-                        "is_active": True,
-                        "schema_version": _CONFIG_SCHEMA_VERSION,
-                        "config": _config_to_json(get_active_config()),
-                    },
-                    "default": {
-                        "is_active": False,
-                        "schema_version": _CONFIG_SCHEMA_VERSION,
-                        "config": _config_to_json(_DEFAULT_CONFIG),
-                    },
+                    "config": _config_to_json(_ACTIVE_CONFIG),
+                },
+                "embedded": {
+                    "is_active": active_source == "embedded",
+                    "schema_version": _CONFIG_SCHEMA_VERSION,
+                    "config": _config_to_json(get_active_config()),
+                },
+                "default": {
+                    "is_active": False,
+                    "schema_version": _CONFIG_SCHEMA_VERSION,
+                    "config": _config_to_json(_DEFAULT_CONFIG),
+                },
+            }
+            # Mirror the device: stored is emitted even when logically empty
+            # if it was just modified (distinguishes deleted from never-existed).
+            if stored_present or _stored_is_modified:
+                resp["stored"] = {
+                    "is_active": stored_is_active,
+                    "is_modified": _stored_is_modified,
+                    "schema_version": _CONFIG_SCHEMA_VERSION if stored_present else 0,
+                    "config": _config_to_json(_stored_config) if _stored_config is not None else None,
                 }
-            )
+            else:
+                resp["stored"] = None
+            self._send_json(resp)
 
         elif path == "/api/hub/status":
             self._send_json({"isStandalone": False, "store": {"read": True}})
@@ -1143,8 +1173,143 @@ class KikkerXHandler(BaseHTTPRequestHandler):
             if "state" in body:
                 _led_state = bool(body["state"])
             self._send_json({"state": _led_state})
+        elif parsed.path == "/api/config/stored":
+            self._patch_stored_config()
         else:
             self.send_error(405)
+
+    def _patch_stored_config(self) -> None:
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) or b"{}"
+        try:
+            patch = json.loads(raw)
+        except json.JSONDecodeError as e:
+            self._send_error_text(400, f"invalid JSON: {e.msg}")
+            return
+        if not isinstance(patch, dict):
+            self._send_error_text(400, "request body must be a JSON object")
+            return
+        global _stored_config, _stored_is_modified
+        if _stored_config is None:
+            _stored_config = {**_DEFAULT_CONFIG}
+        # RFC 7396-style merge for top-level keys: null clears, arrays replace,
+        # objects deep-merge, primitives replace. Faithful enough for the dev server.
+        for k, v in patch.items():
+            if v is None:
+                _stored_config[k] = _DEFAULT_CONFIG.get(k)
+            elif isinstance(v, dict) and isinstance(_stored_config.get(k), dict):
+                _stored_config[k] = {**_stored_config[k], **v}
+            else:
+                _stored_config[k] = v
+        # Mirror device: auth.password (cleartext from UI) is hashed and stored
+        # as auth.password_sha256 before being persisted.
+        auth = _stored_config.get("auth")
+        if isinstance(auth, dict) and isinstance(auth.get("password"), str) and auth["password"]:
+            auth["password_sha256"] = hashlib.sha256(auth["password"].encode()).hexdigest()
+            del auth["password"]
+        _stored_is_modified = True
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_PUT(self) -> None:
+        if not _check_auth(self):
+            self._deny_auth()
+            return
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/config/stored/known_networks":
+            self._put_known_network()
+        else:
+            self.send_error(405)
+
+    def do_DELETE(self) -> None:
+        if not _check_auth(self):
+            self._deny_auth()
+            return
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/config/stored":
+            global _stored_config, _stored_is_modified
+            _stored_config = None
+            _stored_is_modified = True
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        elif parsed.path == "/api/config/stored/known_networks":
+            self._delete_known_network(parse_qs(parsed.query).get("ssid", [""])[0])
+        else:
+            self.send_error(405)
+
+    def _put_known_network(self) -> None:
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) or b"{}"
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError as e:
+            self._send_error_text(400, f"invalid JSON: {e.msg}")
+            return
+        if not isinstance(entry, dict):
+            self._send_error_text(400, "request body must be a JSON object")
+            return
+        ssid = entry.get("ssid")
+        if not isinstance(ssid, str) or not ssid:
+            self._send_error_text(400, "entry must have a non-empty ssid")
+            return
+        # Mirror the device's canonical form: missing / null / empty password = open network → null.
+        if not entry.get("password"):
+            entry["password"] = None
+        global _stored_config, _stored_is_modified
+        # Mirror the device: PUT creates stored if it was absent / outdated.
+        if _stored_config is None:
+            _stored_config = {**_DEFAULT_CONFIG}
+        networks = list(_stored_config.get("known_networks") or [])
+        for i, existing in enumerate(networks):
+            if isinstance(existing, dict) and existing.get("ssid") == ssid:
+                networks[i] = entry
+                break
+        else:
+            networks.append(entry)
+        _stored_config["known_networks"] = networks
+        _stored_is_modified = True
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _delete_known_network(self, ssid: str) -> None:
+        if not ssid:
+            self._send_error_text(400, "missing ssid")
+            return
+        global _stored_config, _stored_is_modified
+        if _stored_config is None:
+            _stored_config = {**_DEFAULT_CONFIG}
+        networks = list(_stored_config.get("known_networks") or [])
+        _stored_config["known_networks"] = [n for n in networks if not (isinstance(n, dict) and n.get("ssid") == ssid)]
+        _stored_is_modified = True
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _copy_stored_from(self, source: str) -> None:
+        # Mirrors the device: reload stored from one of the baseline sources.
+        # "active" is intentionally not supported (can't edit the running snapshot).
+        sources = {"embedded": get_active_config(), "default": _DEFAULT_CONFIG}
+        src = sources.get(source)
+        if src is None:
+            self._send_error_text(400, "source must be 'embedded' or 'default'")
+            return
+        global _stored_config, _stored_is_modified
+        _stored_config = dict(src)
+        _stored_is_modified = True
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _send_error_text(self, status: int, msg: str) -> None:
+        body = msg.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self) -> None:
         if not _check_auth(self):
@@ -1152,6 +1317,7 @@ class KikkerXHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         path = parsed.path
+        qs = parse_qs(parsed.query)
 
         if path == "/api/restart":
             self._send_text("Restarting.")
@@ -1167,6 +1333,8 @@ class KikkerXHandler(BaseHTTPRequestHandler):
             import threading
 
             threading.Thread(target=self.server.shutdown, daemon=True).start()
+        elif path == "/api/config/stored/copy":
+            self._copy_stored_from(qs.get("from", [""])[0])
         elif path == "/api/wifi/reconnect":
             self._send_text("Reconnecting to WiFi.")
         elif path == "/api/led/blink":

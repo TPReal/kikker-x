@@ -34,40 +34,6 @@ upload) erases it. So the button is only useful in a narrow window after an upgr
 
 ---
 
-## Writing the stored config over HTTP
-
-`GET /api/config` (see `/config` page) already exposes the stored (NVS) and embedded configs read-only. Natural next
-step: let the user edit the stored config without reflashing.
-
-Shape:
-
-- `PATCH /api/config` — body is a JSON object with only the fields to change; server merges into the current stored
-  config, re-validates, commits to NVS, then reboots. Redacted placeholders (`"***"`, `"0a1b2c***"`) are treated as
-  "leave unchanged".
-- `DELETE /api/config` — wipe the stored config from NVS and reboot. Useful for resetting a camera back to
-  embedded/default behavior without flashing.
-
-Only available when `config_policy` actually uses NVS (`STORE_EMBEDDED`, `LOAD_OR_*`). For `USE_EMBEDDED`, NVS is never
-read, so writing to it would silently do nothing.
-
-Complications:
-
-- **Brick risk.** The obvious one: edit WiFi credentials wrong, device reboots into AP fallback (or hangs forever if
-  `fallback_access_point: false`). Partially mitigated by keeping the embedded fallback intact — the stored config can
-  be wiped via serial, or reset by reflashing.
-- **Validation.** Need schema checks (known keys, required types) before commit. Ideally a "try WiFi before persisting"
-  step for network changes, but that's a substantial extra mechanism (stage in a tmp NVS slot, try it, promote or
-  revert).
-- **Auth reconfiguration.** If the user changes `auth.password_sha256` and gets it wrong, they're locked out. Same
-  serial/reflash escape hatch applies.
-- **Schema version.** On `CONFIG_SCHEMA_VERSION` bump, the stored config is already discarded at load time. Patching
-  should preserve whatever forward-compat behaviour we decide on.
-
-The cheaper narrow alternative: `POST /api/wifi` that takes just an SSID + password and writes only `known_networks` —
-covers the most-common remote change without the general config-editing attack surface.
-
----
-
 ## Flashing from another KikkerX camera
 
 On the `/ota` page, offer a third mode alongside "Upload file" and "Fetch from URL": pull the firmware directly from
@@ -131,29 +97,29 @@ complexity. A hub-side push only pays off when there are many cameras to update,
 
 ## Hub proxy: authorise on behalf of the client
 
-`--enable-proxy` (standalone hub) currently passes the client's `Authorization` header through to the upstream
-camera unchanged. The store already carries the camera auths (username + password in `auths[]`), so the hub *could*
-inject the matching credentials itself and spare the client from sending them.
+`--enable-proxy` (standalone hub) currently passes the client's `Authorization` header through to the upstream camera
+unchanged. The store already carries the camera auths (username + password in `auths[]`), so the hub _could_ inject the
+matching credentials itself and spare the client from sending them.
 
 Benefits:
 
 - One login flow for the whole UI — authenticate to the hub once; the proxy resolves per-camera auth server-side. Good
   for mobile UX: no per-camera password dialogs after the first unlock.
-- Works with cameras that are fussy about CORS on 401 (the browser never sees a 401 because auth is injected before
-  the request leaves the hub).
+- Works with cameras that are fussy about CORS on 401 (the browser never sees a 401 because auth is injected before the
+  request leaves the hub).
 - Client no longer needs to keep the camera's cleartext password in memory / localStorage if it can reach the hub.
 
 Open questions:
 
 - Who is allowed to invoke which camera? With the current pass-through model, the store file holds credentials and
   anyone with read access to the store can extract them. With hub-injected auth, the client can use a camera via the
-  proxy without ever seeing the credentials. That might be desirable (pass them to the hub admin once, share the hub
-  URL with others) — or it might not (per-user access control).
-- Per-client credential override. The user might want to temporarily try different creds on a camera without editing
-  the store. Need a way for the client to say "use this Authorization instead of the stored one" — e.g. a session
-  override header recognised by the proxy.
+  proxy without ever seeing the credentials. That might be desirable (pass them to the hub admin once, share the hub URL
+  with others) — or it might not (per-user access control).
+- Per-client credential override. The user might want to temporarily try different creds on a camera without editing the
+  store. Need a way for the client to say "use this Authorization instead of the stored one" — e.g. a session override
+  header recognised by the proxy.
 - Lookup: the proxy listener only knows its upstream origin; it doesn't know which stored auth applies. Need a map
   `origin → authId → credentials` built during reconciliation, or resolve on each request.
 
-A reasonable middle ground: ship injection as an opt-in flag (`--inject-auth` or per-camera flag in the store),
-keeping the pass-through default.
+A reasonable middle ground: ship injection as an opt-in flag (`--inject-auth` or per-camera flag in the store), keeping
+the pass-through default.

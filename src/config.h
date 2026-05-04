@@ -43,8 +43,12 @@ struct WifiEntry {
 
 struct ApFallback {
   string ssid;  // empty = not configured
-  string password;  // empty = open network
+  string password;  // empty = open AP; AP_FALLBACK_RANDOM_TOKEN = generate per-boot; else explicit passphrase
 };
+
+// Sentinel value that means "generate a random AP password each boot". Stored verbatim in
+// ap_fallback.password; wifi_connect resolves it to an actual password when starting the AP.
+extern const char* const AP_FALLBACK_RANDOM_TOKEN;
 
 struct cJSON;
 
@@ -57,6 +61,11 @@ class Config {
   // When log is true, emits a summary of wifi entries and AP fallback on successful parse
   // — used by getActiveConfig to log only the chosen source, not inspection reads.
   static unique_ptr<Config> fromJSON(const char* configJSON, bool log = false);
+
+  // Copyable — needed so we can snapshot the active config independently of the
+  // stored/embedded/defaults caches (which may be replaced by stored-config edits).
+  Config(const Config&) = default;
+  Config& operator=(const Config&) = default;
 
   string mdns;  // empty to disable mDNS, otherwise registered as <value>.local
   vector<WifiEntry> wifi_entries;
@@ -76,6 +85,8 @@ struct ConfigInfo {
   unique_ptr<Config> config;  // null when unavailable (absent, wrong schema_version, or parse failed)
   bool is_active = false;  // set by getActiveConfig: policy keeps this source in sync this boot
                            // (either read, or written by a STORE_* policy)
+  bool is_modified = false;  // set on the stored source after a successful PATCH/PUT/DELETE —
+                             // means NVS no longer matches what's running in RAM
 };
 
 // Embedded config. Cached. version == 0 when not applicable (LOAD_OR_USE_DEFAULT, LOAD_OR_FAIL).
@@ -94,6 +105,38 @@ const Config& getActiveConfig();
 
 // Firmware defaults — a ConfigInfo wrapping a Config built from "{}". Cached.
 const ConfigInfo& getFirmwareDefaults(bool log = false);
+
+// Active running config — snapshot taken at boot. Owned independently of the
+// stored/embedded/defaults caches so edits to `stored` do not disturb it.
+// is_active is always true here.
+const ConfigInfo& getActiveConfigInfo();
+
+// True when the active CONFIG_POLICY reads NVS at runtime (LOAD_OR_* policies).
+// The edit endpoints reject with 405 when this is false.
+bool canEditStoredConfig();
+
+// Applies an RFC 7396-style JSON merge patch to the stored config in NVS.
+// Objects are deep-merged, arrays replaced wholesale, null clears a key (reset to default).
+// Creates the stored config if NVS is empty or has a bad schema_version.
+// On success: NVS is updated, s_stored is re-parsed, is_modified is set, is_active is cleared.
+// Returns "" on success or a human-readable error on failure (leaves NVS untouched).
+string patchStoredConfig(const char* patchJson);
+
+// Replaces the whole stored config with an empty object (reset everything to defaults).
+// Semantically a DELETE — clears the NVS entry. Returns "" on success.
+string deleteStoredConfig();
+
+// Adds or replaces a single known_networks entry, matched by SSID.
+// Returns "" on success.
+string putKnownNetwork(const char* entryJson);
+
+// Removes the known_networks entry matching `ssid`. No-op (still returns "")
+// if no entry matches — endpoint is idempotent.
+string deleteKnownNetwork(const char* ssid);
+
+// Resets the stored config to a baseline source: "embedded" (firmware-embedded JSON)
+// or "default" (firmware defaults, equivalent to "{}"). Returns "" on success.
+string copyStoredFrom(const char* source);
 
 // Returns the CONFIG_POLICY name as a string (e.g. "STORE_EMBEDDED").
 const char* getConfigPolicyName();

@@ -64,35 +64,105 @@ curl "http://kikker-x.local/api/config"
 # → { "policy": "LOAD_OR_USE_EMBEDDED",
 #     "active_source": "stored",
 #     "schema_version": 2,
-#     "stored":   { "is_active": true,  "schema_version": 2, "config": { "mdns": "kikker-x", ... } },
+#     "can_edit_stored": true,
+#     "active":   { "is_active": true,  "schema_version": 2, "config": { "mdns": "kikker-x", ... } },
+#     "stored":   { "is_active": true,  "is_modified": false, "schema_version": 2,
+#                   "config": { "mdns": "kikker-x", ... } },
 #     "embedded": { "is_active": false, "schema_version": 2, "config": { "mdns": "kikker-x", ... } },
 #     "default":  { "is_active": false, "schema_version": 2, "config": { "mdns": null,        ... } } }
 ```
 
-Inspect what the device is running on. The response lists the three possible config sources, which ones are active, and
-which one is the primary read source. For more information about the config and config policies, see
+Inspect what the device is running on. The response lists the config sources, which ones are active, and which one is
+the primary read source. For more information about the config and config policies, see
 [configs/README.md](../configs/README.md).
 
 - `policy` — compile-time `CONFIG_POLICY` name (e.g. `USE_EMBEDDED`, `LOAD_OR_USE_DEFAULT`).
-- `active_source` — `"stored"`, `"embedded"`, or `"default"`: the single source the firmware reads at runtime. Useful as
-  a canonical pick (e.g. "show me the active config") — `data[active_source].config`.
+- `active_source` — `"stored"`, `"embedded"`, or `"default"`: the single source the firmware reads at runtime.
 - `schema_version` (top level) — the firmware's current `CONFIG_SCHEMA_VERSION`.
-- `stored` — NVS-stored config, or `null` when NVS has no entry. `stored.config` is `null` if `stored.schema_version`
-  doesn't match the top-level `schema_version` (it's preserved for inspection but ignored at runtime).
+- `can_edit_stored` — `true` if the current policy reads NVS at runtime (`LOAD_OR_*`). The stored-config edit endpoints
+  below return `405 Method Not Allowed` when this is `false`.
+- `active` — the config currently running in RAM (snapshot taken at boot); always present. `active.is_active` is always
+  `true`. Diverges from `stored` after a successful `PATCH`/`PUT`/`DELETE` — see `stored.is_modified` below.
+- `stored` — NVS-stored config, or `null` when NVS has no entry and has not been edited this boot. `stored.config` is
+  `null` if `stored.schema_version` doesn't match the top-level `schema_version` (preserved for inspection but ignored
+  at runtime). `stored.is_modified` is `true` after a successful edit — NVS no longer matches `active`; restart the
+  device to apply.
 - `embedded` — firmware-embedded config, or `null` when the policy doesn't use it (`LOAD_OR_USE_DEFAULT`,
   `LOAD_OR_FAIL`). If embedded is present but fails to parse, the device shuts down rather than serving this response.
 - `default` — always present; the firmware defaults (as if `_config.json` were `{}`). Useful for showing which settings
   differ from defaults.
-- Each source entry also carries `is_active: bool` — true when the policy keeps that source in sync with the runtime
-  config this boot (either read, or written by a `STORE_*` policy). Typically only one source is active, but in
+- Each source entry carries `is_active: bool` — true when the policy keeps that source in sync with the runtime config
+  this boot (either read, or written by a `STORE_*` policy). Typically only one source is active, but in
   `STORE_EMBEDDED` (always) and `LOAD_OR_STORE_EMBEDDED` (on NVS miss) both `embedded` (read) and `stored` (written) are
-  flagged active — the policy mirrors embedded into NVS every boot.
+  flagged active — the policy mirrors embedded into NVS every boot. A stored entry with `is_modified: true` has
+  `is_active: false` regardless of policy.
 
 Passwords are redacted to `"***"` (or `"RANDOM"` for an AP fallback configured to generate one at boot). Password hashes
 are shown as the first 6 hex chars followed by `***`.
 
-There is no write endpoint; configs are updated by reflashing (see [configs/README.md](../configs/README.md)) or by
-writing to NVS via a `LOAD_OR_*` policy.
+### Editing the stored config
+
+The endpoints below write directly to NVS and only take effect on the **next boot** — the running config is a snapshot
+taken at startup. They require `can_edit_stored: true` (i.e. policy is `LOAD_OR_*`); on other policies they respond
+`405 Method Not Allowed`. Success is `204 No Content`; validation failures are `400 Bad Request` with the reason in the
+body. The web UI at `/config` exposes these.
+
+No validation of "safety" is performed — any change that parses is accepted, including ones that lock you out. The one
+guarantee is that the stored blob is always canonical: unknown keys are stripped, wrong-type values are coerced to
+defaults. The canonical shape is what lands in NVS.
+
+```sh
+curl -X PATCH "http://kikker-x.local/api/config/stored" \
+  -H "Content-Type: application/json" \
+  -d '{"mdns": "kitchen-cam", "known_networks": null}'
+# → 204 No Content
+```
+
+RFC 7396 JSON Merge Patch on the stored config. Objects are deep-merged; arrays replace wholesale (no append); a `null`
+value clears a key (reverting to the firmware default on next boot). Creates a fresh stored entry when NVS is empty or
+has a schema mismatch.
+
+For `auth`, the patch must use `password` (cleartext) — it is hashed server-side and persisted as `password_sha256`. The
+latter is what `GET /api/config` returns (redacted to `"abc123***"`); a `password` field is never read back or stored on
+the device.
+
+```sh
+curl -X PUT "http://kikker-x.local/api/config/stored/known_networks" \
+  -H "Content-Type: application/json" \
+  -d '{"ssid": "HomeNet", "password": "..."}'
+# → 204 No Content
+```
+
+Adds or replaces a single `known_networks` entry (matched by SSID). Entry fields follow the schema in
+[`config.json.template`](../configs/config.json.template): `ssid`, `password`, and optional `static_ip`, `subnet_mask`,
+`gateway`, `dns`. Creates the stored entry if absent.
+
+```sh
+curl -X DELETE "http://kikker-x.local/api/config/stored/known_networks?ssid=HomeNet"
+# → 204 No Content
+```
+
+Removes the `known_networks` entry whose SSID matches the `ssid` query parameter. URL-encode the value if it contains
+special characters. Idempotent — returns 204 even if no entry matched.
+
+```sh
+curl -X DELETE "http://kikker-x.local/api/config/stored"
+# → 204 No Content
+```
+
+Wipes the stored config. Semantically a reset — on next boot the device falls back per policy (embedded config, or
+firmware defaults for `LOAD_OR_USE_DEFAULT`). Under `LOAD_OR_FAIL` the device will refuse to start, and since the write
+endpoint only runs while firmware is up, recovery requires re-flashing over USB.
+
+```sh
+curl -X POST "http://kikker-x.local/api/config/stored/copy?from=embedded"
+# → 204 No Content
+```
+
+Replaces the stored config with a baseline source. `from=embedded` copies the firmware-embedded JSON verbatim (real
+passwords preserved); `from=default` copies the firmware defaults (equivalent to `{}`, used for the `/config` page's
+"Create" / "Reset to Default" actions). `400 Bad Request` if `from` is missing or unknown, or if the requested source
+isn't available on the current policy (e.g. `from=embedded` on `LOAD_OR_USE_DEFAULT`).
 
 ---
 

@@ -15,17 +15,236 @@
     <div class="page cfg-page">
       <h1><a href="/" style="color: #fff; text-decoration: none">⇦</a> Configuration</h1>
       <div id="cfgMeta" class="cfg-meta">Loading…</div>
-      <p class="cfg-hint">
+      <p class="hint">
         Passwords are redacted. For comparison purposes, redacted values are compared literally — two
         <code>"***"</code> entries are treated as equal even if the underlying passwords differ.
       </p>
       <div id="cfgControls" class="cfg-controls" hidden>
-        <label><input type="radio" name="cfgMode" value="se" checked /> Stored vs Embedded</label>
-        <label><input type="radio" name="cfgMode" value="da" /> Default vs Active</label>
+        <label class="cfg-mode-opt">
+          <input type="radio" name="cfgMode" value="se" class="visually-hidden" />
+          Stored vs Embedded
+        </label>
+        <label class="cfg-mode-opt">
+          <input type="radio" name="cfgMode" value="sa" class="visually-hidden" />
+          Stored vs Active
+        </label>
+        <label class="cfg-mode-opt">
+          <input type="radio" name="cfgMode" value="da" class="visually-hidden" />
+          Default vs Active
+        </label>
       </div>
       <div id="cfgGrid" class="cfg-grid" hidden></div>
-      <div id="cfgError" class="cfg-error" hidden></div>
+      <div id="cfgError" class="error-banner" hidden></div>
     </div>
+
+    <dialog id="cfgAddNetworkDialog" style="--dlg-w: 450px">
+      <form id="cfgAddNetworkForm">
+        <h3>Add / replace WiFi network</h3>
+        <div class="form-row">
+          <label for="cfgAnSsid">SSID:</label>
+          <input type="text" autocapitalize="none" id="cfgAnSsid" required autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <label for="cfgAnPassword">Password:</label>
+          <input type="password" id="cfgAnPassword" autocomplete="off" placeholder="leave blank for an open network" />
+        </div>
+        <details class="cfg-advanced">
+          <summary>Static IP (optional)</summary>
+          <div class="form-row">
+            <label for="cfgAnStaticIp">static_ip:</label>
+            <input type="text" autocapitalize="none" id="cfgAnStaticIp" placeholder="e.g. 192.168.1.50" autocomplete="off" />
+          </div>
+          <div class="form-row">
+            <label for="cfgAnSubnet">subnet_mask:</label>
+            <input type="text" autocapitalize="none" id="cfgAnSubnet" placeholder="default: 255.255.255.0" autocomplete="off" />
+          </div>
+          <div class="form-row">
+            <label for="cfgAnGateway">gateway:</label>
+            <input type="text" autocapitalize="none" id="cfgAnGateway" placeholder="default: same as static_ip" autocomplete="off" />
+          </div>
+          <div class="form-row">
+            <label for="cfgAnDns">dns:</label>
+            <input type="text" autocapitalize="none" id="cfgAnDns" placeholder="default: 8.8.8.8" autocomplete="off" />
+          </div>
+        </details>
+        <p id="cfgAnError" class="dialog-error" hidden></p>
+        <p class="dialog-note">
+          Entries are matched by SSID — submitting an existing SSID replaces it. Saved to the stored config; takes
+          effect on next boot.
+        </p>
+        <div class="form-actions">
+          <button type="submit" id="cfgAnSaveBtn">Save</button>
+          <button type="button" id="cfgAnCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="cfgRestartDialog">
+      <h3>Restart device to apply changes?</h3>
+      <p id="cfgRsBody" class="dialog-warning">
+        The device will reboot and start running the stored config. This page will reload automatically after a moment.
+      </p>
+      <p id="cfgRsError" class="dialog-error" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cfgRsConfirmBtn" class="danger">Restart</button>
+        <button type="button" id="cfgRsCancelBtn">Cancel</button>
+      </div>
+    </dialog>
+
+    <dialog id="cfgSetToDialog">
+      <h3 id="cfgStTitle">Overwrite stored config?</h3>
+      <p id="cfgStBody" class="dialog-warning"></p>
+      <p id="cfgStError" class="dialog-error" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cfgStConfirmBtn" class="danger">Overwrite</button>
+        <button type="button" id="cfgStCancelBtn">Cancel</button>
+      </div>
+    </dialog>
+
+    <dialog id="cfgDeleteDialog">
+      <h3>Delete stored config?</h3>
+      <p class="dialog-warning">
+        This clears the stored config. Takes effect on next boot.
+      </p>
+      <p id="cfgDelPolicyNote" class="dialog-warning"></p>
+      <p id="cfgDelError" class="dialog-error" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cfgDelConfirmBtn" class="danger">Delete</button>
+        <button type="button" id="cfgDelCancelBtn">Cancel</button>
+      </div>
+    </dialog>
+
+    <dialog id="cfgMdnsDialog" style="--dlg-w: 360px">
+      <form id="cfgMdnsForm">
+        <h3>Edit mDNS</h3>
+        <div class="form-row">
+          <label for="cfgMdnsInput">Hostname:</label>
+          <input type="text" autocapitalize="none" id="cfgMdnsInput" placeholder="leave blank to disable mDNS" autocomplete="off" />
+        </div>
+        <p class="dialog-note">
+          Device is reachable at <code>&lt;hostname&gt;.local</code>. Saved to the stored config; takes effect on next
+          boot.
+        </p>
+        <p id="cfgMdnsError" class="dialog-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit">Save</button>
+          <button type="button" id="cfgMdnsCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="cfgBoolDialog" style="--dlg-w: 360px">
+      <form id="cfgBoolForm">
+        <h3 id="cfgBoolTitle"></h3>
+        <div class="form-row">
+          <label><input type="checkbox" id="cfgBoolCheckbox" /> <span id="cfgBoolLabel">Enabled</span></label>
+        </div>
+        <p class="dialog-note">Saved to the stored config; takes effect on next boot.</p>
+        <p id="cfgBoolError" class="dialog-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit">Save</button>
+          <button type="button" id="cfgBoolCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="cfgApDialog" style="--dlg-w: 420px">
+      <form id="cfgApForm">
+        <h3>Edit AP fallback</h3>
+        <div class="form-row">
+          <label><input type="checkbox" id="cfgApEnabled" /> AP fallback enabled</label>
+        </div>
+        <div class="cfg-ap-detail">
+          <div class="form-row">
+            <label for="cfgApSsid">SSID:</label>
+            <input type="text" autocapitalize="none" id="cfgApSsid" required autocomplete="off" />
+          </div>
+          <div class="form-row">
+            <label>Password mode:</label>
+            <label><input type="radio" name="cfgApPwMode" value="random" /> Random (regenerated each boot)</label>
+            <label><input type="radio" name="cfgApPwMode" value="explicit" /> Explicit:
+              <input type="password" id="cfgApPassword" autocomplete="off" />
+            </label>
+            <label><input type="radio" name="cfgApPwMode" value="open" /> Open (no password)</label>
+          </div>
+        </div>
+        <p class="dialog-note">
+          When enabled, the AP starts if no known WiFi network is reachable. Saved to the stored config; takes effect
+          on next boot.
+        </p>
+        <p id="cfgApError" class="dialog-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit">Save</button>
+          <button type="button" id="cfgApCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="cfgAuthDialog" style="--dlg-w: 420px">
+      <form id="cfgAuthForm">
+        <h3>Edit auth</h3>
+        <div class="form-row">
+          <label><input type="checkbox" id="cfgAuthEnabled" /> Require HTTP Basic auth</label>
+        </div>
+        <div class="cfg-auth-detail">
+          <div class="form-row">
+            <label for="cfgAuthUsername">Username:</label>
+            <input type="text" autocapitalize="none" id="cfgAuthUsername" required autocomplete="username" />
+          </div>
+          <div class="form-row">
+            <label for="cfgAuthPassword">Password:</label>
+            <input type="password" id="cfgAuthPassword" required autocomplete="new-password" />
+          </div>
+        </div>
+        <p class="dialog-note">
+          The password is sent in plain text and hashed (SHA-256) on the device — only the hash is persisted.
+          Saved to the stored config; takes effect on next boot.
+        </p>
+        <p id="cfgAuthError" class="dialog-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit">Save</button>
+          <button type="button" id="cfgAuthCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="cfgImportDialog" style="--dlg-w: 480px">
+      <h3>Import stored config</h3>
+      <textarea id="cfgImportText" class="json-textarea" placeholder="Paste a JSON config object here…"></textarea>
+      <div class="form-row">
+        <div>
+          <label><input type="radio" name="cfgImportMode" value="patch" checked /> Patch
+            <span class="dialog-note" style="display: inline; margin: 0">— update only the specified
+              fields</span></label>
+        </div>
+        <div>
+          <label><input type="radio" name="cfgImportMode" value="replace" /> Replace
+            <span class="dialog-note" style="display: inline; margin: 0">— other fields are reset to
+              defaults</span></label>
+        </div>
+      </div>
+      <p class="dialog-note">
+        Allowed keys: <span id="cfgImportAllowedKeys"></span>. Unknown keys are rejected.
+      </p>
+      <p id="cfgImportError" class="dialog-error" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cfgImportConfirmBtn">Import</button>
+        <button type="button" id="cfgImportCancelBtn">Cancel</button>
+      </div>
+    </dialog>
+
+    <dialog id="cfgResetFieldDialog" style="--dlg-w: 360px">
+      <h3 id="cfgRfTitle">Reset to default</h3>
+      <p id="cfgRfBody" class="dialog-note"></p>
+      <p id="cfgRfError" class="dialog-error" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cfgRfConfirmBtn">Reset</button>
+        <button type="button" id="cfgRfCancelBtn">Cancel</button>
+      </div>
+    </dialog>
+
+    <div id="cfgToast" class="toast" popover="manual"></div>
+
     <script type="module" src="/config.mjs"></script>
   </body>
 </html>

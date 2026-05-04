@@ -4,6 +4,7 @@
 .cfg-meta {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px 18px;
   font-size: 12px;
   color: #888;
@@ -17,31 +18,33 @@
   color: #bbb;
   font-size: 12px;
 }
-.cfg-hint {
-  font-size: 11px;
-  color: #666;
-  margin: 0 0 12px;
-  line-height: 1.5;
+.cfg-meta .cfg-source-name {
+  color: #bbb;
+  font-variant-caps: small-caps;
 }
-.cfg-hint code {
-  color: #888;
-  font-size: 11px;
-}
+/* Mode selector — segmented tabs (same shape as the OTA page's mode row). */
 .cfg-controls {
   display: flex;
-  gap: 14px;
-  font-size: 12px;
-  color: #aaa;
+  gap: 1px;
   margin: 0 0 14px;
-  user-select: none;
-  -webkit-user-select: none;
+  background: #333;
+  border: 1px solid #333;
+  border-radius: 4px;
+  overflow: hidden;
 }
-.cfg-controls label {
+.cfg-mode-opt {
+  flex: 1;
+  text-align: center;
+  padding: 7px 8px;
+  background: #1a1a1a;
+  color: #777;
+  font-size: 12px;
+  font-variant-caps: small-caps;
   cursor: pointer;
 }
-.cfg-controls input {
-  margin-right: 4px;
-  vertical-align: middle;
+.cfg-mode-opt:has(input:checked) {
+  background: #252525;
+  color: #ccc;
 }
 
 /* --- Grid layout ---
@@ -87,10 +90,11 @@
   margin-bottom: 6px;
   font-family: system-ui, sans-serif;
 }
-.cfg-col-hd h2 {
-  margin: 0;
-  font-size: 13px;
+.cfg-col-name {
+  font-size: 15px;
+  font-weight: bold;
   color: #ddd;
+  font-variant-caps: small-caps;
 }
 .cfg-col-hd .cfg-version {
   font-size: 11px;
@@ -131,17 +135,26 @@
   padding: 3px 10px;
 }
 
-/* The "= default" tag floats in the top-right and is not part of JSON copy. */
-.cfg-tag-default {
+/* Top-right per-field controls: "= default" tag + edit/reset icons. The whole
+   container is non-selectable so it doesn't pollute a JSON-text selection. */
+.cfg-field-actions {
   position: absolute;
-  top: 0;
+  /* The cell has padding 3px and a JSON line-height of ~18.6px (12px * 1.55).
+     5px tucks the icons (15px tall) roughly onto the visual center of the
+     first JSON line, so the row reads as aligned with the field's value. */
+  top: 5px;
   right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cfg-tag-default {
   font-size: 10px;
   color: #777;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 /* --- JSON body (selectable) --- */
@@ -244,12 +257,8 @@
   }
 }
 
-/* --- Tags in column header (not selectable) --- */
+/* --- Tags in column header --- */
 
-.cfg-tag {
-  user-select: none;
-  -webkit-user-select: none;
-}
 .cfg-tag-active {
   font-size: 10px;
   text-transform: uppercase;
@@ -262,13 +271,119 @@
   color: #9c6;
 }
 
-/* --- Error --- */
+/* --- Modified badge (in the meta row when stored.is_modified) --- */
 
-.cfg-error {
-  padding: 10px 12px;
+.cfg-modified-badge {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #e0c060;
+  background: #2a2414;
+  border: 1px solid #5a4a20;
+  border-radius: 10px;
+  font-family: system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+.cfg-modified-badge:not(:disabled):hover {
+  background: #3a3220;
+  color: #f5dc70;
+  border-color: #80662e;
+}
+
+/* --- Edit toolbar (Add network / Delete stored) ---
+   Rendered as a grid cell under the stored column. Matching spacers fill the
+   same grid row in the other columns (see .cfg-toolbar-spacer below). */
+
+.cfg-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  padding: 8px 0 0;
+}
+.cfg-toolbar-spacer {
+  /* Keeps column-flow aligned on desktop (each column needs the same cell count).
+     Empty div, auto-collapses to 0 height. Dropped entirely on mobile row-flow. */
+}
+@media (max-width: 640px) {
+  .cfg-toolbar-spacer {
+    display: none;
+  }
+}
+
+/* --- Inline-editable known_networks ---
+   Per-entry layout: JSON snippet + ✎ / ✕ icons (shared .icon-btn class).
+   `+ Add network` row at the bottom. Section-level reset (↺) lives in the
+   normal cfg-field-actions container, anchored top-right of the cell. */
+/* Inherit the base .cfg-field padding (3px 10px) so this cell aligns with the
+   other top-level sections — the per-row content compensates internally. */
+.cfg-networks .cfg-networks-open,
+.cfg-networks .cfg-networks-close {
+  margin: 0;
+}
+.cfg-network-row {
+  padding: 1px 0;
+}
+/* First line of a network entry: "{" + ✎/✕ icons inline. The body lines
+   live in a separate <pre> below so the icons can sit immediately after the
+   opening brace without being pushed to the row's right edge. */
+.cfg-network-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.cfg-network-head pre,
+.cfg-network-body {
+  margin: 0;
+}
+.cfg-network-add {
+  display: block;
+  margin: 6px 4px 0;
+  background: none;
+  border: 1px dashed #444;
+  color: #888;
+  border-radius: 3px;
+  padding: 3px 8px;
   font-size: 12px;
-  color: #c66;
-  background: #2a1a1a;
-  border: 1px solid #442222;
-  border-radius: 4px;
+  cursor: pointer;
+  font-family: system-ui, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cfg-network-add:hover {
+  background: #1e1e1e;
+  color: #ccc;
+  border-color: #666;
+}
+
+/* Section disabled-via-checkbox: dim and gate inputs. JS also sets `disabled` on inputs;
+   this class only handles the visual dimming. */
+.cfg-disabled-section {
+  opacity: 0.45;
+}
+
+/* Disabled view-mode radios (e.g. "Active vs Stored" when stored is absent). */
+.cfg-controls .cfg-mode-disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+/* --- Dialog-specific helpers --- */
+
+.cfg-advanced {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: #aaa;
+}
+.cfg-advanced summary {
+  cursor: pointer;
+  padding: 2px 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cfg-advanced[open] summary {
+  margin-bottom: 8px;
 }

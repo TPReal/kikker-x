@@ -9,6 +9,7 @@
   "known_networks": [
     {
       "ssid": "WifiName",
+      // For an open (no-password) network, omit this field or set it to null.
       "password": "WifiPassword (can be obscured like this: \u0070\u0061\u0073\u0073)"
       // Optional static IP configuration (uncomment to use):
       // "static_ip": "192.168.1.100",

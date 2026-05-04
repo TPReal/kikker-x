@@ -86,7 +86,8 @@ config is persisted in NVS and survives future firmware updates.
    Push via OTA (file upload or URL on the `/ota` page). Since the binary uses `LOAD_OR_USE_DEFAULT`, each camera keeps
    its own config from NVS. Cameras that were never configured boot into AP mode.
 
-3. **Change a camera's config** — re-flash with `STORE_EMBEDDED` to overwrite the NVS config.
+3. **Change a camera's config** — re-flash with `STORE_EMBEDDED` to overwrite the NVS config, or for `LOAD_OR_*`
+   policies edit it live from the device's `/config` page (no reflash needed; takes effect on next reboot).
 
 ## Adding custom configurations
 

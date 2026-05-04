@@ -1,6 +1,8 @@
-import { docElem } from "/util.mjs";
+import { docElem, POST_REBOOT_RELOAD_MS, showToast } from "/util.mjs";
 
-const RELOAD_DELAY_MS = 8000;
+function toast(message) {
+  showToast(docElem.toast, message);
+}
 
 // First byte of every ESP32 image is 0xE9. We treat a byte-0 mismatch as a
 // hard "not a firmware image" signal. The KikkerX version marker placed in
@@ -126,10 +128,11 @@ function uploadBlob(blob) {
 }
 
 function onFlashDone(msg) {
-  setStatus(`${msg} Reloading soon…`);
+  setStatus(undefined);
+  toast(`${msg} Reloading soon…`);
   setTimeout(() => {
     location.href = "/";
-  }, RELOAD_DELAY_MS);
+  }, POST_REBOOT_RELOAD_MS);
 }
 
 function updateButtonStates() {
@@ -184,7 +187,8 @@ async function flash(blob) {
   try {
     onFlashDone(await uploadBlob(blob));
   } catch (e) {
-    setStatus(e.message);
+    setStatus(undefined);
+    toast(e.message);
   }
 }
 
@@ -215,7 +219,8 @@ async function fetchAndFlash(url, label) {
   try {
     const res = await fetch(url);
     if (res.status === 403) {
-      setStatus(`Source refused: ${await res.text()}`);
+      setStatus(undefined);
+      toast(`Source refused: ${await res.text()}`);
       return;
     }
     if (!res.ok) {
@@ -238,7 +243,8 @@ async function fetchAndFlash(url, label) {
     }
     blob = new Blob(chunks);
   } catch (e) {
-    setStatus(e instanceof TypeError ? "Fetch failed (network error or CORS)." : e.message);
+    setStatus(undefined);
+    toast(e instanceof TypeError ? "Fetch failed (network error or CORS)." : e.message);
     return;
   }
   const info = await inspectFirmware(blob);
@@ -260,7 +266,7 @@ async function doFetchAndUpload() {
     return;
   }
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    setStatus("URL must start with http:// or https://.");
+    toast("URL must start with http:// or https://.");
     return;
   }
   setBusy(true);

@@ -179,15 +179,15 @@ With `--enable-proxy`:
 
 - One local listener is opened per distinct camera origin (OS-assigned port). The ports aren't stable across restarts.
 - When a camera is added or removed via `PUT /api/hub/store`, the listener set is reconciled.
-- The listeners forward every request verbatim — method, path, query, headers, body — to the upstream camera, and
-  stream responses back (MJPEG/multipart-safe; TCP_NODELAY on both legs). The client's `Authorization` header is passed
-  through unchanged.
+- The listeners forward every request verbatim — method, path, query, headers, body — to the upstream camera, and stream
+  responses back (MJPEG/multipart-safe; TCP_NODELAY on both legs). The client's `Authorization` header is passed through
+  unchanged.
 - **mDNS names (`*.local`) are resolved once at listener creation and the IP is cached**, avoiding a lookup on every
   request. A connection failure triggers one automatic re-resolve + retry, so a DHCP renewal or brief camera outage
   doesn't require restarting the hub.
 - `/api/hub/status` advertises the port map as `proxy: { ports: { "http://cam1": 54321, ... } }`.
-- The hub page shows a **Proxy through hub** checkbox in the `⋯` menu (only when the server offers it) and a small
-  "via proxy" badge in the header while it's active. The UI keeps displaying and editing original camera URLs; only
+- The hub page shows a **Proxy through hub** checkbox in the `⋯` menu (only when the server offers it) and a small "via
+  proxy" badge in the header while it's active. The UI keeps displaying and editing original camera URLs; only
   thumbnails, card links, and status requests target the proxy when the checkbox is on. Default on; remembered via
   `pageOptions.hubProxy` in localStorage.
 
@@ -196,8 +196,8 @@ Constraints:
 - **HTTP only.** The proxy listeners serve plain HTTP. If the hub's main page is served over HTTPS (e.g. a terminating
   reverse proxy), the browser blocks mixed content; turn the proxy off or arrange matching HTTPS termination for the
   random ports too.
-- **One port per origin.** All ports must be reachable by the client — this fits a VPN or LAN-wide tunnel, but not
-  a single-hostname tunnel (e.g. cloudflared).
+- **One port per origin.** All ports must be reachable by the client — this fits a VPN or LAN-wide tunnel, but not a
+  single-hostname tunnel (e.g. cloudflared).
 - **Auth pass-through.** The hub doesn't decrypt or manage camera credentials on the client's behalf. Whatever
   `Authorization` the client sends to the proxy port is forwarded; no credentials are stored on the server beyond
   whatever's in the store file.

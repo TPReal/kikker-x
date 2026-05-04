@@ -15,17 +15,24 @@ input[type="checkbox"] {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
+  padding: 0;
   border: 1px solid #666;
   border-radius: 2px;
-  background: #1e1e1e;
   cursor: pointer;
+  /* Background longhands set explicitly: the `:checked` rule only flips
+     background-image, so any shorthand reset elsewhere can't dislodge
+     position/size. Size 100% pixel-aligns the tick to the padding box edges,
+     avoiding sub-pixel drift from centring a 10 px image in an 11 px box. */
+  background-color: #1e1e1e;
+  background-image: none;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  background-origin: padding-box;
+  background-clip: border-box;
 }
 input[type="checkbox"]:checked {
   border-color: #aaa;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1,5 L3.5,8 L8,1' stroke='%23fff' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 10px 10px;
 }
 input[type="radio"] {
   appearance: none;
@@ -151,6 +158,8 @@ button:disabled {
   line-height: 1;
   min-width: 16px;
   text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .icon-btn:hover:not(:disabled) {
   color: #aaa;
@@ -168,6 +177,36 @@ button:disabled {
 #status {
   min-width: 80px;
   color: #888;
+}
+
+/* --- Page-level helpers --- */
+
+/* Red error banner for fatal page conditions (config load failure, OTA disabled, …). */
+.error-banner {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #c66;
+  background: #2a1a1a;
+  border: 1px solid #442222;
+  border-radius: 4px;
+}
+/* Small gray hint paragraph above an interactive section. */
+.hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.5;
+}
+.hint code {
+  color: #888;
+}
+/* Tiny gray status / progress line beneath buttons (kept for in-flight progress;
+   for terminal states prefer the toast). */
+.status-line {
+  margin-top: 8px;
+  color: #666;
+  font-size: 11px;
+  min-height: 14px;
 }
 
 /* --- Mobile layout: canvas sticks to top, settings scroll beneath --- */
@@ -236,6 +275,225 @@ button:disabled {
     border-left: 1px solid #222;
     max-width: none;
   }
+}
+
+/* --- Shared dialog + form primitives (used by hub, config, …) --- */
+
+dialog {
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 20px;
+  box-sizing: border-box;
+  /* Per-dialog desired width via inline `style="--dlg-w: 480px"`. The min() clamps
+     it to the viewport (with side margins) so dialogs never overflow on mobile. */
+  min-width: min(var(--dlg-w, 300px), calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+}
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+dialog h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+/* Inline error / note paragraphs commonly used inside dialogs. */
+.dialog-error {
+  font-size: 12px;
+  color: #f88;
+  margin: 0 0 12px;
+  max-width: 420px;
+  overflow-wrap: break-word;
+}
+.dialog-note {
+  font-size: 12px;
+  color: #666;
+  margin: 12px 0 0;
+  line-height: 1.5;
+}
+/* Yellow warning paragraph for destructive / pending-action dialogs. */
+.dialog-warning {
+  font-size: 12px;
+  color: #d9a84d;
+  background: #261e0d;
+  border: 1px solid #4a3820;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  line-height: 1.5;
+  max-width: 420px;
+}
+.dialog-warning code {
+  color: #d9c080;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* Bottom-right transient toast. Use as <div class="toast" popover="manual"> and
+   drive via util.mjs's showToast(elem, message). */
+.toast {
+  position: fixed;
+  inset: auto;
+  bottom: 20px;
+  right: 20px;
+  margin: 0;
+  background: #2a2a2a;
+  color: #ccc;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+.toast.fade {
+  opacity: 0;
+}
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+/* Labels wrapping a custom-styled checkbox/radio: layout-driven centering and
+   a fixed gap. Bypasses two artifacts of the appearance:none inputs in inline
+   flow — the input's baseline (its bottom edge) doesn't sit on the text's
+   optical center, and the literal " " character produces a visual gap whose
+   perceived size varies with the input's shape (round vs square). The space
+   character is a pure-whitespace anonymous flex item, which the spec drops, so
+   only `gap` contributes to the spacing.
+   Inputs flagged `.visually-hidden` (used when the label is the visible target
+   and the real input sits invisibly beneath) opt out — those labels keep their
+   own layout. */
+label:has(> input[type="checkbox"]:not(.visually-hidden)),
+label:has(> input[type="radio"]:not(.visually-hidden)) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Input rendered invisibly so the surrounding label provides the visible
+   target (e.g. segmented-button-style radios). Still focusable via keyboard;
+   pointer events skip it so clicks land on the label. */
+.visually-hidden {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.form-row > label {
+  font-size: 13px;
+  color: #aaa;
+}
+.form-row input[type="url"],
+.form-row input[type="text"],
+.form-row input[type="password"],
+.form-row select {
+  background: #111;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.form-row input:disabled,
+.form-row select:disabled {
+  color: #777;
+  -webkit-text-fill-color: #999;
+  background: #111;
+  border-color: #333;
+  cursor: default;
+  opacity: 1;
+}
+.form-row input:disabled::placeholder {
+  -webkit-text-fill-color: #555;
+}
+.form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.json-textarea {
+  width: 100%;
+  min-height: 180px;
+  background: #111;
+  color: #ddd;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: monospace;
+  resize: vertical;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+}
+/* --- Shared popover menu (button + absolutely-positioned panel of items) ---
+   Usage: wrap a trigger <button> and a <div class="menu-popover" hidden> in a
+   parent with .menu-wrap. Toggle the popover's `hidden` attribute from JS.
+   Popover aligns to the bottom-right of the wrapper. Items are <button> or
+   <label class="menu-chk-label"> (for a checkbox row); <hr class="menu-sep">
+   separates groups. */
+
+.menu-wrap {
+  position: relative;
+}
+.menu-popover {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: calc(100% - 1px);
+  right: 0;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 4px 0;
+  z-index: 100;
+  min-width: 160px;
+}
+.menu-popover button {
+  text-align: left;
+  padding: 6px 14px;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  font: inherit;
+  width: 100%;
+}
+.menu-popover button:hover {
+  background: #333;
+}
+.menu-chk-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  width: 100%;
+}
+.menu-chk-label:hover {
+  background: #333;
+}
+.menu-sep {
+  border: none;
+  border-top: 1px solid #333;
+  margin: 4px 0;
+}
+
+/* Danger variant for destructive actions (delete, wipe, etc.). */
+button.danger {
+  color: #e9a;
+  border-color: #5a2a2a;
+  background: #2a1818;
+}
+button.danger:not(:disabled):hover {
+  background: #3a1e1e;
+  color: #fcc;
 }
 
 /* Rotation classes — mobile (default) */

@@ -758,6 +758,25 @@ static int intParam(const String& reqLine, const char* key, int def) {
   return v.length() > 0 ? v.toInt() : def;
 }
 
+// Decodes percent-encoding and "+" → space in a URL-encoded query value.
+static String urlDecode(const String& s) {
+  String out;
+  out.reserve(s.length());
+  for (int i = 0; i < (int)s.length(); i++) {
+    char c = s[i];
+    if (c == '+') {
+      out += ' ';
+    } else if (c == '%' && i + 2 < (int)s.length()) {
+      char hex[3] = {s[(unsigned)(i + 1)], s[(unsigned)(i + 2)], 0};
+      out += (char)strtol(hex, nullptr, 16);
+      i += 2;
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
 // Must be called with cameraMutex held.
 // Applies all OV3660 sensor settings derived from URL query parameters,
 // using the same defaults as the stream and photo UIs.
@@ -1030,9 +1049,13 @@ static void handleStatus(WiFiClient& client, const String& reqLine, const String
 // ---------------------------------------------------------------------------
 
 // Builds {"is_active": bool, "schema_version": N, "config": <raw redacted JSON | null>}.
-static cJSON* buildSourceEntry(const ConfigInfo& info) {
+// For the stored entry, is_modified is also included.
+static cJSON* buildSourceEntry(const ConfigInfo& info, bool includeModified = false) {
   cJSON* obj = cJSON_CreateObject();
   cJSON_AddBoolToObject(obj, "is_active", info.is_active);
+  if (includeModified) {
+    cJSON_AddBoolToObject(obj, "is_modified", info.is_modified);
+  }
   cJSON_AddNumberToObject(obj, "schema_version", info.schema_version);
   if (info.config) {
     cJSON_AddItemToObject(obj, "config", cJSON_CreateRaw(info.config->redactedJSON.c_str()));
@@ -1047,17 +1070,23 @@ static void handleConfig(WiFiClient& client, const String& origin) {
   const ConfigInfo& embedded = getEmbeddedConfig();
   const ConfigInfo& stored = getStoredConfig();
   const ConfigInfo& defaults = getFirmwareDefaults();
+  const ConfigInfo& active = getActiveConfigInfo();
 
   cJSON* root = cJSON_CreateObject();
   cJSON_AddStringToObject(root, "policy", getConfigPolicyName());
   cJSON_AddStringToObject(root, "active_source", getConfigActiveSource());
   cJSON_AddNumberToObject(root, "schema_version", CONFIG_SCHEMA_VERSION);
+  cJSON_AddBoolToObject(root, "can_edit_stored", canEditStoredConfig());
 
-  // stored: null when NVS is empty, else {is_active, schema_version, config (null if schema mismatch or parse fail)}.
-  if (stored.schema_version == 0) {
+  // active: the config currently running in RAM (snapshot taken at boot). Always present.
+  cJSON_AddItemToObject(root, "active", buildSourceEntry(active));
+
+  // stored: null when NVS is empty, else {is_active, is_modified, schema_version, config}.
+  // is_modified is true after a successful PATCH/PUT/DELETE — NVS no longer matches active.
+  if (stored.schema_version == 0 && !stored.is_modified) {
     cJSON_AddNullToObject(root, "stored");
   } else {
-    cJSON_AddItemToObject(root, "stored", buildSourceEntry(stored));
+    cJSON_AddItemToObject(root, "stored", buildSourceEntry(stored, /*includeModified=*/true));
   }
 
   // embedded: null when policy doesn't use embedded (LOAD_OR_USE_DEFAULT, LOAD_OR_FAIL),
@@ -1082,6 +1111,66 @@ static void handleConfig(WiFiClient& client, const String& origin) {
   }
   client.stop();
   Log.println("→ 200 config");
+}
+
+// Shared 2xx/4xx reply for the stored-config edit endpoints. Empty err = success (204),
+// non-empty err = 400 with the error as the body. The 405 policy-rejection path is
+// handled by the callers via canEditStoredConfig() before dispatching here.
+static void sendStoredConfigEditResult(WiFiClient& client, const String& origin, const string& err) {
+  if (err.empty()) {
+    client.print("HTTP/1.1 204 No Content\r\n");
+    endHeaders(client, origin);
+    client.stop();
+    Log.println("→ 204 config/stored");
+    return;
+  }
+  client.print("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n");
+  endHeaders(client, origin);
+  client.print(err.c_str());
+  client.stop();
+  Log.printf("→ 400 config/stored: %s\n", err.c_str());
+}
+
+static void handleConfigStoredPatch(WiFiClient& client, const String& body, const String& origin) {
+  if (!canEditStoredConfig()) {
+    send405(client, origin);
+    return;
+  }
+  sendStoredConfigEditResult(client, origin, patchStoredConfig(body.c_str()));
+}
+
+static void handleConfigStoredDelete(WiFiClient& client, const String& origin) {
+  if (!canEditStoredConfig()) {
+    send405(client, origin);
+    return;
+  }
+  sendStoredConfigEditResult(client, origin, deleteStoredConfig());
+}
+
+static void handleKnownNetworkPut(WiFiClient& client, const String& body, const String& origin) {
+  if (!canEditStoredConfig()) {
+    send405(client, origin);
+    return;
+  }
+  sendStoredConfigEditResult(client, origin, putKnownNetwork(body.c_str()));
+}
+
+static void handleKnownNetworkDelete(WiFiClient& client, const String& reqLine, const String& origin) {
+  if (!canEditStoredConfig()) {
+    send405(client, origin);
+    return;
+  }
+  String ssid = urlDecode(parseParam(reqLine, "ssid"));
+  sendStoredConfigEditResult(client, origin, deleteKnownNetwork(ssid.c_str()));
+}
+
+static void handleConfigStoredCopy(WiFiClient& client, const String& reqLine, const String& origin) {
+  if (!canEditStoredConfig()) {
+    send405(client, origin);
+    return;
+  }
+  String from = parseParam(reqLine, "from");
+  sendStoredConfigEditResult(client, origin, copyStoredFrom(from.c_str()));
 }
 
 // ---------------------------------------------------------------------------
@@ -1555,6 +1644,8 @@ void loop() {
   bool isGet = reqLine.startsWith("GET ");
   bool isPost = reqLine.startsWith("POST ");
   bool isPatch = reqLine.startsWith("PATCH ");
+  bool isPut = reqLine.startsWith("PUT ");
+  bool isDelete = reqLine.startsWith("DELETE ");
   bool isOptions = reqLine.startsWith("OPTIONS ");
 
   // Handle CORS preflight before auth check — preflights carry no credentials.
@@ -1564,8 +1655,8 @@ void loop() {
       client.print("Access-Control-Allow-Origin: ");
       client.print(originHeader);
       client.print(
-          "\r\nAccess-Control-Allow-Methods: GET, POST, PATCH\r\n"
-          "Access-Control-Allow-Headers: Authorization\r\n"
+          "\r\nAccess-Control-Allow-Methods: GET, POST, PATCH, PUT, DELETE\r\n"
+          "Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
           "Access-Control-Max-Age: 86400\r\n"
           "Vary: Origin\r\n");
     }
@@ -1575,7 +1666,7 @@ void loop() {
     return;
   }
 
-  if (!isGet && !isPost && !isPatch) {
+  if (!isGet && !isPost && !isPatch && !isPut && !isDelete) {
     send405(client, originHeader);
     return;
   }
@@ -1618,7 +1709,9 @@ void loop() {
           Log.println("mDNS start failed");
     } else if (path == "/api/poweroff")
       handlePowerOff(client, reqLine, originHeader);
-    else if (path == "/api/led/blink") {
+    else if (path == "/api/config/stored/copy") {
+      handleConfigStoredCopy(client, reqLine, originHeader);
+    } else if (path == "/api/led/blink") {
       if (!boardFeatures().led)
         send404(client, originHeader);
       else
@@ -1636,6 +1729,29 @@ void loop() {
         send404(client, originHeader);
       else
         handleLedPatch(client, body, originHeader);
+    } else if (path == "/api/config/stored") {
+      handleConfigStoredPatch(client, body, originHeader);
+    } else
+      send405(client, originHeader);
+    return;
+  }
+
+  // --- PUT routes ---
+  if (isPut) {
+    String body = readBody(client, bodyLen);
+    if (path == "/api/config/stored/known_networks") {
+      handleKnownNetworkPut(client, body, originHeader);
+    } else
+      send405(client, originHeader);
+    return;
+  }
+
+  // --- DELETE routes ---
+  if (isDelete) {
+    if (path == "/api/config/stored") {
+      handleConfigStoredDelete(client, originHeader);
+    } else if (path == "/api/config/stored/known_networks") {
+      handleKnownNetworkDelete(client, reqLine, originHeader);
     } else
       send405(client, originHeader);
     return;

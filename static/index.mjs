@@ -1,7 +1,9 @@
 import { getPageOptions, patchPageOptions } from "/page_options.mjs";
-import { docElem } from "/util.mjs";
+import { docElem, POST_REBOOT_RELOAD_MS, showToast } from "/util.mjs";
 
-const RELOAD_DELAY_MS = 8000;
+function toast(message) {
+  showToast(docElem.toast, message);
+}
 
 function loadStatus() {
   fetch("/api/status")
@@ -76,33 +78,21 @@ function doBlink() {
 }
 
 function doReconnect() {
-  docElem.msg.textContent = "Reconnecting…";
+  toast("Reconnecting…");
   fetch("/api/wifi/reconnect", { method: "POST" })
     .then(r => r.text())
-    .then(t => {
-      docElem.msg.textContent = `${t} Reloading…`;
-    })
-    .catch(() => {
-      docElem.msg.textContent = "Device is reconnecting. Reloading soon…";
-    })
-    .finally(() => {
-      setTimeout(() => location.reload(), RELOAD_DELAY_MS);
-    });
+    .then(t => toast(`${t} Reloading…`))
+    .catch(() => toast("Device is reconnecting. Reloading soon…"))
+    .finally(() => setTimeout(() => location.reload(), POST_REBOOT_RELOAD_MS));
 }
 
 function doRestart() {
-  docElem.msg.textContent = "Sending…";
+  toast("Sending…");
   fetch("/api/restart", { method: "POST" })
     .then(r => r.text())
-    .then(t => {
-      docElem.msg.textContent = t;
-    })
-    .catch(() => {
-      docElem.msg.textContent = "Device is restarting. Reloading soon…";
-    })
-    .finally(() => {
-      setTimeout(() => location.reload(), RELOAD_DELAY_MS);
-    });
+    .then(t => toast(t))
+    .catch(() => toast("Device is restarting. Reloading soon…"))
+    .finally(() => setTimeout(() => location.reload(), POST_REBOOT_RELOAD_MS));
 }
 
 function applyDurUnit(unit) {
@@ -162,7 +152,7 @@ function doPowerOff() {
     alert("Maximum sleep duration is 255 minutes (4 h 15 min).");
     return;
   }
-  docElem.msg.textContent = "Sending…";
+  toast("Sending…");
   fetch(`/api/poweroff?duration=${seconds}`, { method: "POST" })
     .then(r => r.text())
     .then(t => {
@@ -170,11 +160,9 @@ function doPowerOff() {
         const wakeAt = new Date(Date.now() + seconds * 1000);
         t += ` (Scheduled wake-up: ${wakeAt.toLocaleTimeString()})`;
       }
-      docElem.msg.textContent = t;
+      toast(t);
     })
-    .catch(() => {
-      docElem.msg.textContent = "Device is shutting down.";
-    });
+    .catch(() => toast("Device is shutting down."));
 }
 
 docElem.refreshBtn.addEventListener("click", loadStatus);

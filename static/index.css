@@ -143,12 +143,6 @@ select {
 .off-btn:not(:disabled):hover {
   background: #4d0000;
 }
-#msg {
-  margin-top: 8px;
-  color: #666;
-  font-size: 11px;
-  min-height: 14px;
-}
 .led-row {
   display: flex;
   gap: 10px;

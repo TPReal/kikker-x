@@ -43,9 +43,9 @@
           title="All camera traffic is routed through the hub's per-camera proxy ports. Toggle in the ⋯ menu.">
           via proxy
         </span>
-        <div class="manage-wrap">
+        <div class="menu-wrap">
           <button type="button" id="manageBtn" title="Menu">⋯</button>
-          <div id="manageMenu" hidden>
+          <div id="manageMenu" class="menu-popover" hidden>
             <button type="button" id="loadBtn" hidden>Load from server</button>
             <button type="button" id="saveBtn" hidden>Save to server</button>
             <button type="button" id="resetDefaultsBtn" hidden>Reset to defaults</button>
@@ -71,7 +71,7 @@
 
     <div id="camGrid"></div>
 
-    <dialog id="addDialog" style="min-width: 450px">
+    <dialog id="addDialog" style="--dlg-w: 450px">
       <form id="addForm">
         <h3>Add camera</h3>
         <div class="form-row" id="typeRow">
@@ -90,7 +90,7 @@
         </div>
         <div class="form-row" id="captureParamsRow" hidden>
           <label for="addCaptureParams">Capture params:</label>
-          <input type="text" id="addCaptureParams" placeholder="e.g. res=SVGA (default: VGA)" />
+          <input type="text" autocapitalize="none" id="addCaptureParams" placeholder="e.g. res=SVGA (default: VGA)" />
         </div>
         <div class="form-row">
           <label for="addAuth">Auth:</label>
@@ -106,14 +106,14 @@
           </div>
           <div class="form-row">
             <label for="addUsername">Username:</label>
-            <input type="text" id="addUsername" autocomplete="username" />
+            <input type="text" autocapitalize="none" id="addUsername" autocomplete="username" />
           </div>
           <div class="form-row">
             <label for="addPassword">Password:</label>
             <input type="password" id="addPassword" autocomplete="current-password" />
           </div>
         </div>
-        <p id="viewOnlyNote" hidden style="font-size: 12px; color: #666; margin: 12px 0 0">
+        <p id="viewOnlyNote" class="dialog-note" hidden>
           To edit, enable <strong>Allow changes</strong> in the <strong>⋯</strong> menu in the top right.
         </p>
         <div class="form-actions">
@@ -126,7 +126,7 @@
       </form>
     </dialog>
 
-    <dialog id="exportDialog" style="min-width: 480px">
+    <dialog id="exportDialog" style="--dlg-w: 480px">
       <h3>Export cameras</h3>
       <textarea id="exportText" class="json-textarea" readonly></textarea>
       <div class="form-actions">
@@ -136,10 +136,10 @@
       </div>
     </dialog>
 
-    <dialog id="importDialog" style="min-width: 480px">
+    <dialog id="importDialog" style="--dlg-w: 480px">
       <h3>Import cameras</h3>
       <textarea id="importText" class="json-textarea" placeholder="Paste camera JSON here…"></textarea>
-      <p id="importError" style="color: #f88; font-size: 12px; margin: 0 0 8px; display: none"></p>
+      <p id="importError" class="dialog-error" style="display: none"></p>
       <div class="form-actions" style="justify-content: space-between">
         <button type="button" id="importFileBtn">Load from file</button>
         <div style="display:flex;align-items:center;gap:8px">
@@ -152,7 +152,7 @@
       </div>
     </dialog>
 
-    <dialog id="authsDialog" style="min-width: 360px">
+    <dialog id="authsDialog" style="--dlg-w: 360px">
       <h3>Saved Auths</h3>
       <div id="authsList"></div>
       <div class="form-actions" style="justify-content: space-between">
@@ -170,7 +170,7 @@
         </div>
         <div class="form-row">
           <label for="eaUsername">Username:</label>
-          <input type="text" id="eaUsername" required autocomplete="username" />
+          <input type="text" autocapitalize="none" id="eaUsername" required autocomplete="username" />
         </div>
         <div class="form-row">
           <label for="eaPassword">Password:</label>
@@ -188,15 +188,13 @@
         <h3 id="credsTitle">Credentials</h3>
         <div class="form-row">
           <label for="credsUsername">Username:</label>
-          <input type="text" id="credsUsername" required autocomplete="off" />
+          <input type="text" autocapitalize="none" id="credsUsername" required autocomplete="off" />
         </div>
         <div class="form-row">
           <label for="credsPassword">Password:</label>
           <input type="password" id="credsPassword" autocomplete="off" />
         </div>
-        <p id="credsError"
-          style="color: #f88; font-size: 12px; margin: 0 0 12px; display: none; max-width: 240px; overflow-wrap: break-word">
-        </p>
+        <p id="credsError" class="dialog-error" style="display: none; max-width: 240px"></p>
         <div class="form-actions">
           <button type="submit" id="credsSubmitBtn">OK</button>
           <button type="button" id="credsCancelBtn">Cancel</button>
@@ -204,7 +202,7 @@
       </form>
     </dialog>
 
-    <div id="toast" popover="manual"></div>
+    <div id="toast" class="toast" popover="manual"></div>
 
     <script type="module" src="/hub.mjs"></script>
   </body>

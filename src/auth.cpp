@@ -5,6 +5,21 @@
 
 #include "config.h"
 
+std::string sha256Hex(const void* data, size_t len) {
+  unsigned char hash[32];
+  mbedtls_sha256_context ctx;
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts(&ctx, 0);
+  mbedtls_sha256_update(&ctx, (const unsigned char*)data, len);
+  mbedtls_sha256_finish(&ctx, hash);
+  mbedtls_sha256_free(&ctx);
+  char hex[65];
+  for (int i = 0; i < 32; i++) {
+    snprintf(hex + i * 2, 3, "%02x", hash[i]);
+  }
+  return std::string(hex, 64);
+}
+
 bool authCheck(const String& authHeader) {
   if (getActiveConfig().auth.username.empty())
     return true;
@@ -37,26 +52,10 @@ bool authCheck(const String& authHeader) {
   if (userLen != user.size() || memcmp(decoded, user.c_str(), userLen) != 0)
     return false;
 
-  // SHA-256 the received password
-  const unsigned char* pwd = decoded + colon + 1;
-  size_t pwdLen = decodedLen - colon - 1;
-  unsigned char hash[32];
-  mbedtls_sha256_context ctx;
-  mbedtls_sha256_init(&ctx);
-  mbedtls_sha256_starts(&ctx, 0);  // 0 = SHA-256
-  mbedtls_sha256_update(&ctx, pwd, pwdLen);
-  mbedtls_sha256_finish(&ctx, hash);
-  mbedtls_sha256_free(&ctx);
-
-  // Format as lowercase hex and compare
-  char hashHex[65];
-  for (int i = 0; i < 32; i++)
-    snprintf(hashHex + i * 2, 3, "%02x", hash[i]);
-  hashHex[64] = '\0';
-
-  // Constant-time compare — both strings are always exactly 64 hex chars.
+  // Constant-time compare against the stored hash — both strings are always exactly 64 hex chars.
+  std::string hashHex = sha256Hex(decoded + colon + 1, decodedLen - colon - 1);
   const string& stored = getActiveConfig().auth.password_sha256;
-  if (stored.empty())
+  if (stored.size() != 64)
     return false;
   int diff = 0;
   for (int i = 0; i < 64; i++)
